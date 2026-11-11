@@ -43,9 +43,9 @@ A7 CI, A8 docs
 - [ ] **D4. MQTT broker** — HA Mosquitto add-on vs external (design.md §5).
 - [ ] **D5. Station policy** — which stations; HTTP vs HTTPS; licensing/geo (Q5).
 - [ ] **D6. Missed-alarm policy after power loss** (Q7).
-- [ ] **D7. Device naming / `device_id` scheme** — friendly slug vs MAC-derived; how `device_id` is set per unit (design.md §9.4).
+- [x] **D7. `device_id` scheme — DECIDED: MAC-derived** (unique, invisible, stable); optional friendly slug is a future enhancement (design.md §9.1, §9.4).
 - [ ] **D8. Wi-Fi onboarding method** — Improv-serial (+ captive-portal fallback) vs on-device setup UI; confirm **no WPS** (design.md §14.1).
-- [ ] **D9. `device_id` provisioning mechanism** — MAC default + optional NVS/SD friendly name (design.md §14.2).
+- [x] **D9. `device_id` provisioning — DECIDED: MAC default, no runtime provisioning for v1.** Device reports its own id; a **physical label** maps unit ↔ id (design.md §14.2).
 - [ ] Repo scaffolding: `.gitignore`, `LICENSE`, `secrets.example.yaml`, `ha/`, `firmware/`, `tools/` dirs.
 - [ ] Record all decisions back into design.md §18.
 
@@ -56,8 +56,9 @@ A7 CI, A8 docs
       default, **persisted in NVS** and stable across reboots/OTA (design.md §9.4).
 - [ ] Add **Wi-Fi onboarding**: `improv_serial` (first setup) + `captive_portal`
       fallback; support `wifi: networks:` + static IP (design.md §14.1).
-- [ ] Wire the **`device_id` provisioning path** chosen in D9 (e.g. HA `text`
-      entity or `config.json` on SD → NVS) (design.md §14.2).
+- [ ] Implement **`device_id` = MAC-derived** (D7/D9): derive it at boot, use it
+      for all topic/unique_id namespacing; no runtime id entry in v1 (design.md §14.2).
+- [ ] Implement a **`sensor` exposing the device id/short-MAC** so HA can show/confirm it.
 - [ ] Include all components up front: display, touch, audio/speaker, time/NTP,
       Wi-Fi, MQTT, `switch`/`select`/`number`/`time`/`button`/`sensor`, alarm automations.
 - [ ] Set build flags for **16 MB flash + Octal PSRAM** (design.md §3.1/§13).
@@ -69,9 +70,9 @@ A7 CI, A8 docs
 ## A3. Design the MQTT interface  *(design.md M2, §9)*
 
 - [ ] Finalise topic scheme + node id + `unique_id`s for every entity (design.md §9.1).
-- [ ] Namespace **all** topics/`unique_id`s/`dev.ids` by a per-device id so
-      **multiple clocks** coexist (design.md §9.1, §9.4). Define the `device_id`
-      source (config slug or MAC) and the resulting patterns.
+- [ ] Namespace **all** topics/`unique_id`s/`dev.ids` by the per-device id so
+      **multiple clocks** coexist (design.md §9.1, §9.4). `device_id` **= MAC**
+      (short/long form) — define the exact derivation + resulting patterns.
 - [ ] Ensure each clock groups as its own HA device (shared `dev` block) and add a
       friendly device `name`.
 - [ ] Evaluate **device-based discovery** (`homeassistant/device/<device_id>/config`,
@@ -97,8 +98,8 @@ A7 CI, A8 docs
 ## A6. Device simulator  *(enables end-to-end testing pre-hardware)*
 
 - [ ] Write `tools/mqtt_sim.py` (Python `paho-mqtt`) that **impersonates the device**:
-  - takes a `--device-id` (and optional `--name`) argument so **two+ simulators
-    can run simultaneously** to prove multi-clock support (design.md §9.4),
+  - takes a `--device-id` (a simulated MAC-like id) + optional `--name` so
+    **two+ simulators can run simultaneously** to prove multi-clock support (design.md §9.4),
   - publishes the same discovery payloads (A3),
   - publishes availability + state,
   - subscribes to command topics and updates state accordingly,
@@ -122,6 +123,8 @@ A7 CI, A8 docs
 - [ ] Order/confirm accessories (speaker if needed, USB-C PSU, microSD) (design.md §3.3).
 - [ ] Write user docs: setup, Wi-Fi/MQTT provisioning, changing stations, HA usage.
 - [ ] Note the **factory `.bin` recovery** procedure (design.md §13.6).
+- [ ] Design the **physical device label** (short id = last 6 MAC hex, optional
+      name/QR) and create a `docs/devices.md` inventory (unit ↔ id ↔ HA name) (design.md §14.2).
 
 **Track A AC:** firmware compiles; MQTT interface + discovery payloads are frozen;
 HA shows all entities (against the simulator); Universal Media Player works;
@@ -139,6 +142,8 @@ CI green; pin map pre-verified. → *Everything left is hardware validation.*
 - [ ] Flash the **vendor factory firmware**; exercise display, touch, Wi-Fi, audio.
 - [ ] Confirm **audio out** (tones) and `PA_CTRL` (GPIO 7); confirm **display** (ST7789V2) + **touch** (CST816T).
 - [ ] Note MAC/hostname; archive the factory `.bin`.
+- [ ] Capture the vendor **MAC/QR sticker** on the board (before fitting the case);
+      record it in `docs/devices.md` and apply our own underside label (design.md §14.2).
 
 ## B2. Flash our firmware & iterate  *(design.md M1)*
 

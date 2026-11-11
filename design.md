@@ -535,11 +535,14 @@ component.
 Every clock uses a **unique `device_id`** so multiple alarm clocks can share one
 MQTT broker without collisions.
 
-**`device_id` source (in priority order):**
-1. Explicit config value (build-time/provisioning) — a friendly slug such as
-   `bedroom`, `kitchen`, `office`, `guest-room`.
-2. Otherwise **derived from the ESP32 MAC** (e.g. `a4cf12b8d61f`) — guaranteed
-   unique, stable across reboots/OTA.
+**`device_id` source — v1 decision:** derived from the **ESP32 MAC**
+(e.g. `a4cf12b8d61f`, or shortened to its last 6 hex like `12b8d61f`). This is
+unique by construction, invisible to users, stable across reboots/OTA, and needs
+**no provisioning**. A physical label on the case maps each unit to its id
+(§14.2).
+
+> Future/optional: an explicit friendly slug (e.g. `bedroom`) could override the
+> MAC for nicer topic names, but v1 keys everything on the MAC.
 
 **Namespacing derived from `device_id`:**
 
@@ -663,6 +666,10 @@ own HA device. This is achieved purely by namespacing on `device_id` (§9.1):
 |-----------|-----------|--------------|----------------------|
 | `bedroom` | Bedroom Alarm Clock | `media_player.bedroom_alarm_clock` | `homeassistant/.../bedroom/...` |
 | `kitchen` | Kitchen Alarm Clock | `media_player.kitchen_alarm_clock` | `homeassistant/.../kitchen/...` |
+
+> *Illustrative only:* v1 uses **MAC-derived** ids (e.g. `a4cf12b8`), not the
+> friendly slugs shown above — the friendly names are set by renaming the HA
+> device (§14.2). The namespacing mechanics are identical.
 
 ---
 
@@ -916,17 +923,35 @@ Follows the namespacing rules in §9.1/§9.4. Ways to *set* it:
 | ↳ **first-boot AP form** | NVS | Like the captive portal |
 | ↳ MQTT **command topic** | NVS | ⚠️ Renaming changes topics — use carefully |
 
-**Recommendation:**
-1. **Default `device_id` = MAC-derived** → works out-of-the-box on any unit, unique
-   and stable across reboots/OTA.
-2. Allow an **optional friendly name**, set at runtime and **persisted in NVS**
-   (HA `text` entity or `config.json` on SD), used for the display and the HA
-   device `name`.
-3. For a known/batch build, a **build-time substitution** is perfectly fine.
+**Decision (v1): MAC-derived `device_id` — no runtime provisioning needed.**
+
+1. **`device_id` = the ESP32 MAC** (or a shortened form, e.g. last 6 hex) → unique
+   by construction, **invisible** to users, and stable across reboots/OTA. This is
+   the chosen approach for v1; no first-boot id entry required.
+2. The device **reports its own id** (an MQTT `sensor`/discovery field, and on the
+   settings screen) so it's always discoverable without a cable.
+3. A friendly name is optional/later: rename in HA the normal way; if we later
+   want a runtime slug, persist it in NVS without changing the topic key.
 
 > 💡 **Decouple "topic id" from "human name":** HA lets you rename the device and
-> entities in the UI independently of `unique_id`. So keep topics keyed on the
-> stable id, and rename for humans in HA — no firmware change needed.
+> entities in the UI independently of `unique_id`. Keep topics keyed on the
+> (MAC) id, rename for humans in HA — no firmware change needed.
+
+#### Physical labelling (identify which physical clock is which)
+
+Because the id is invisible, put a **label on the device** so you can map a
+physical clock → its HA device → its MQTT topics:
+
+- Print a label with the **short id (last 6 hex of the MAC)** and optionally the
+  HA friendly name; attach it to the **underside/back of the case** (the supplied
+  square case has a flat back).
+- The vendor may already print a MAC/QR sticker on the board — capture it before
+  assembling into the case.
+- Optionally generate a QR that deep-links to the HA device page.
+- Add the label ↔ id mapping to a small `docs/devices.md` inventory table and to
+  the HA device name, so "Bedroom" unambiguously maps to one unit.
+
+> Keep the raw MAC off any public surface; the short id is enough for humans.
 
 ### 14.3 MQTT credentials
 
