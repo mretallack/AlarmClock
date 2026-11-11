@@ -16,8 +16,8 @@ The device itself provides an on-screen clock, touch controls, a local
 speaker, and snooze/dismiss buttons.
 
 > 📄 **See [`design.md`](./design.md) for the full design, research, tools,
-> firmware/flashing strategy, risks and roadmap.** No implementation has been
-> started yet.
+> firmware/flashing strategy, risks and roadmap, and [`tasks.md`](./tasks.md)
+> for the actionable task breakdown.** No implementation has been started yet.
 
 ## Hardware
 
