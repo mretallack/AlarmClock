@@ -8,18 +8,20 @@ Home Assistant will be able to:
 
 - Set / change the alarm time
 - Enable / disable the alarm (per day-of-week)
-- Turn the radio on/off and select a station
-- Control volume
-- (Ideally) expose the radio as a `media_player` entity
+- Select a station and control volume
+- Expose the radio as a `media_player` entity (via HA's built-in **Universal
+  Media Player** — no custom component)
 - Support **multiple clocks**, each appearing as its own Home Assistant device
   (all MQTT topics/entities namespaced by a unique per-device id)
 
 The device itself provides an on-screen clock, touch controls, a local
-speaker, and snooze/dismiss buttons.
+speaker, and snooze/dismiss buttons, and keeps its **alarm schedule on-device**
+so it still rings if Home Assistant or the broker is down.
 
-> 📄 **See [`design.md`](./design.md) for the full design, research, tools,
-> firmware/flashing strategy, risks and roadmap, and [`tasks.md`](./tasks.md)
-> for the actionable task breakdown.** No implementation has been started yet.
+> 📄 **Docs:** [`design.md`](./design.md) (full design, research, risks,
+> roadmap) · [`tasks.md`](./tasks.md) (task breakdown) ·
+> [`docs/mqtt-interface.md`](docs/mqtt-interface.md) (firmware↔HA contract) ·
+> [`docs/setup.md`](docs/setup.md) (build/install/use).
 
 ## Hardware
 
@@ -35,6 +37,17 @@ speaker, and snooze/dismiss buttons.
 
 *The board in its included custom-molded square plastic case.*
 
+## Repository layout
+
+```
+firmware/    ESPHome config (alarmclock.yaml) — alarm, radio, MQTT, Wi-Fi onboarding
+docs/        mqtt-interface.md (contract), setup.md, devices.md, images/
+ha/          Home Assistant snippets (Universal Media Player)
+data/        stations.yaml — Internet radio station list
+tools/       mqtt_sim.py — device simulator (test the whole HA side without hardware)
+.github/     CI — validates + compiles the firmware with no device
+```
+
 ## Links
 
 - Board source repo (Waveshare): https://github.com/waveshareteam/ESP32-S3-Touch-LCD-1.54
@@ -42,7 +55,11 @@ speaker, and snooze/dismiss buttons.
 
 ## Status
 
-🟡 **Design phase** — design documented, implementation not started.
+🟢 **In progress — Track A (no-hardware work) complete.** The ESPHome firmware
+validates and **compiles clean**, the full HA integration (20 MQTT-discovered
+entities) is verified against a device **simulator**, and CI is green. Remaining
+work needs the physical board (flash, calibrate, on-device validation) — see the
+Track B section of [`tasks.md`](./tasks.md).
 
 ## License
 
