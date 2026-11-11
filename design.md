@@ -95,6 +95,14 @@ SKU (Amazon UK `B0GS9CW66Z`) is described as:
 | RTC | Onboard RTC (investigate exact part — see Open Questions) |
 | Storage | microSD (TF) card slot |
 | Power | USB-C; LiPo battery connector + charger (battery not included) |
+| Case | **Custom-molded square plastic case (included in the `-EN` variant)** — device arrives enclosed and bedside-ready |
+
+> ✅ The ordered variant **includes a square plastic case**, so the device is
+> already enclosed (no separate enclosure needed for v1). Confirm the case's
+> cut-outs (speaker grille, USB-C, touch access) during bring-up (§17 M0), and
+> confirm whether an onboard speaker is fitted behind the grille (§3.3, §18).
+> A photo of the case is stored in the repo at `docs/images/` and shown in the
+> [README](README.md).
 
 > ⚠️ The GitHub README lists "an RTC". It is **not yet confirmed** whether this
 > is a discrete I²C RTC chip (e.g. PCF85063) or simply the ESP32-S3 internal
@@ -341,6 +349,77 @@ Proposed HA entities (all via MQTT discovery unless noted):
 - v2: allow HA to push the station list (e.g. a `text` entity with JSON, or a
   dedicated config topic) — but a select's option list is set by the discovery
   payload, so changes mean re-publishing discovery. Design carefully (§18).
+
+### 6.5 Exposing a real `media_player` (no custom component)
+
+Because HA's built-in MQTT integration has **no `media_player` platform** (§5.2),
+we surface a proper `media_player.alarmclock` entity in three ways, none of which
+require writing a custom component:
+
+1. **Universal Media Player (recommended, core integration) — works with our
+   MQTT entities.** Wraps the MQTT-discovered `switch`/`select`/`number`/`sensor`
+   into a single media player with power, volume, mute, source selection and
+   now-playing. It is configured in `configuration.yaml` (not via discovery), but
+   it is a **built-in HA integration**, not a custom component.
+   Docs: https://www.home-assistant.io/integrations/universal/
+2. **ESPHome native API** (if we build on ESPHome): the `speaker`/`media_player`
+   component is exposed to HA directly — a genuine `media_player`, zero config,
+   but over the native API rather than MQTT (§7).
+3. **Hybrid**: MQTT entities **and** an ESPHome native-API `media_player`
+   simultaneously.
+
+#### Example Universal Media Player config (wraps the MQTT entities)
+
+```yaml
+# configuration.yaml
+media_player:
+  - platform: universal
+    name: Alarm Clock
+    unique_id: alarmclock_media_player
+    device_class: speaker
+    # Underlying MQTT-discovered entities created via discovery (§9)
+    children:
+      - switch.alarmclock_radio
+    commands:
+      turn_on:
+        service: switch.turn_on
+        target: { entity_id: switch.alarmclock_radio }
+      turn_off:
+        service: switch.turn_off
+        target: { entity_id: switch.alarmclock_radio }
+      volume_set:
+        service: number.set_value
+        target: { entity_id: number.alarmclock_volume }
+        data: { value: "{{ (volume_level * 100) | round(0) | int }}" }
+      volume_up:
+        service: number.set_value
+        target: { entity_id: number.alarmclock_volume }
+        data: { value: "{{ (state_attr('number.alarmclock_volume','value') | float(0) + 5) | int }}" }
+      volume_down:
+        service: number.set_value
+        target: { entity_id: number.alarmclock_volume }
+        data: { value: "{{ (state_attr('number.alarmclock_volume','value') | float(0) - 5) | int }}" }
+      select_source:
+        service: select.select_option
+        target: { entity_id: select.alarmclock_station }
+        data: { option: "{{ source }}" }
+    attributes:
+      state: "{{ 'playing' if is_state('switch.alarmclock_radio','on') else 'idle' }}"
+      source: "{{ states('select.alarmclock_station') }}"
+      source_list: "{{ state_attr('select.alarmclock_station','options') }}"
+      volume_level: "{{ (states('number.alarmclock_volume') | float(0) / 100) | round(2) }}"
+      media_title: "{{ states('sensor.alarmclock_now_playing') }}"
+```
+
+> Notes:
+> - `volume_level` is 0.0–1.0 in HA; the `number` entity is 0–100, hence
+>   `×100` / `÷100`.
+> - Add `media_play`/`media_pause`/`media_stop`/`media_next_track`/
+>   `media_previous_track` commands mapped to the corresponding
+>   `switch`/`button` entities if you want transport controls.
+> - This YAML is the *only* manual config step; all underlying entities remain
+>   MQTT-discovered. Keep it in the repo as a HA package/snippet (e.g.
+>   `ha/universal_media_player.yaml`) so it's version-controlled.
 
 ---
 
@@ -725,9 +804,12 @@ next alarm / now playing / RSSI.)
 
 ## 18. Open questions
 
-1. **`media_player` trade-off:** accept MQTT primitives (+ Universal Media
-   Player façade), or run ESPHome native API alongside MQTT for a true
-   `media_player`? **Needs a decision.**
+1. **`media_player` — RESOLVED:** use MQTT discovery for all primitive entities
+   (switch/select/number/sensor/button/time) **plus a built-in Universal Media
+   Player** (§6.5) to expose a real `media_player.alarmclock` **without any
+   custom HA component**. If we build on ESPHome we *additionally* get a native
+   media_player via its API at no extra cost (optional). No custom integration
+   required.
 2. **Alarm modelling:** simple `switch`+`time`+`select`, or use the
    `alarm_control_panel` MQTT component? One alarm or multiple?
 3. **Board RTC:** is there a discrete I²C RTC chip, and which (PCF85063?)?

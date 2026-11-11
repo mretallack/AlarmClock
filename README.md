@@ -21,9 +21,18 @@ speaker, and snooze/dismiss buttons.
 
 ## Hardware
 
-- **Board:** Waveshare ESP32-S3-Touch-LCD-1.54
+- **Board:** Waveshare ESP32-S3-Touch-LCD-1.54 (`ESP32-S3-Touch-LCD-1.54-EN`)
+  - Touch version, **no LiPo battery**, **includes a custom-molded square
+    plastic case** — i.e. it arrives enclosed and bedside-ready.
   - https://github.com/waveshareteam/ESP32-S3-Touch-LCD-1.54
   - https://www.amazon.co.uk/gp/product/B0GS9CW66Z/ref=sw_img_1?smid=&psc=1
+
+### Photos
+
+> 📷 **Case photo — pending upload.** Drop the image at
+> `docs/images/alarmclock-case.jpg` and it will be shown here.
+>
+> `![Waveshare ESP32-S3-Touch-LCD-1.54 in its case](docs/images/alarmclock-case.jpg)`
 
 ## Links
 
