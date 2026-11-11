@@ -5,163 +5,200 @@ on the Waveshare **ESP32-S3-Touch-LCD-1.54**.
 
 - Companion docs: [`design.md`](./design.md) (design), [`README.md`](./README.md)
 - Legend: `[ ]` todo · `[~]` in progress · `[x]` done · `[!]` blocked
-- Each phase maps to a milestone in `design.md` §17 (M0–M7).
-- "AC" = acceptance criteria (definition of done).
+- Tags: **`[SW]` = doable with no hardware** (laptop only) · **`[HW]` = needs the
+  physical board**
+- The board is **not yet in hand**, so the list is split into **Track A (start
+  now)** and **Track B (once hardware arrives)**.
 
 ---
 
-## Phase 0 — Decisions & repo prep (pre-M0)
+## TL;DR — what we can do today
 
-- [ ] **D1. Choose firmware approach** (ESPHome vs ESP-IDF vs Arduino) — design.md §7, §18 Q8. *Recommendation: ESPHome.*
-- [ ] **D2. Accept the `media_player` approach** — MQTT primitives + built-in Universal Media Player (design.md §6.5, §18 Q1 resolved).
-- [ ] **D3. Confirm alarm modelling** — `switch`+`time`+`select` vs `alarm_control_panel`; one alarm or many (design.md §18 Q2).
-- [ ] **D4. Choose MQTT broker** — HA Mosquitto add-on (recommended) vs external (design.md §5).
-- [ ] **D5. Confirm board RTC** — discrete I²C chip vs ESP32 internal (design.md §3.1, §18 Q3).
-- [ ] **D6. Confirm speaker/amp** — onboard speaker behind grille? external connector + rating (design.md §3.3, §18 Q4).
-- [ ] **D7. Station policy** — which stations; HTTP vs HTTPS endpoints; licensing/geo (design.md §18 Q5).
-- [ ] **D8. Missed-alarm policy after power loss** (design.md §18 Q7).
-- [ ] Repo hygiene: add `.gitignore`, `LICENSE` (Apache-2.0?), `secrets.example.yaml`.
-- [ ] Create `alarmclock.yaml` (ESPHome) or `firmware/` (IDF) skeleton + `ha/` snippets dir.
+We can build and **fully test the Home Assistant side plus the complete device
+configuration** before the hardware lands, by writing the firmware config,
+the MQTT interface, and a small **device simulator** that impersonates the board
+over MQTT. Then Track B becomes mostly *flash, verify, calibrate*.
 
-**Phase AC:** decisions D1–D8 recorded (update design.md §18); repo scaffolding in place.
-
----
-
-## Phase 1 — Hardware bring-up (design.md M0)
-
-- [ ] Unbox; photograph board + case; confirm SKU/case cut-outs (speaker grille, USB-C, touch).
-- [ ] Confirm the **pin map** (design.md §3.2) against the official schematic PDF.
-- [ ] Power via USB-C; confirm it enumerates as `/dev/ttyACM*`; practise **BOOT** download mode.
-- [ ] Flash the **vendor factory firmware** and exercise it (display, touch, Wi-Fi, audio).
-- [ ] Confirm **audio out** works (speaker tones) and note `PA_CTRL` behaviour (GPIO 7).
-- [ ] Confirm **display** driver (ST7789V2) and **touch** (CST816T) respond.
-- [ ] Note device **MAC/hostname**; save the factory `.bin` for recovery.
-
-**Phase AC:** display, touch and audio all verified working; pin map confirmed or corrected in design.md; factory image archived.
+```
+TRACK A (no hardware)                         TRACK B (hardware)
+─────────────────────                         ──────────────────
+A1 decisions          ─┐                       B1 unbox + pin verify
+A2 firmware config     │                       B2 flash + bring-up
+A3 MQTT interface      ├─► device simulator ──► B3 radio validate
+A4 station list        │        (A6)            B4 alarm validate
+A5 HA integration      │                        B5 screen/UI validate
+A6 simulator          ─┘                        B6 hardening/OTA/soak
+A7 CI, A8 docs
+```
 
 ---
 
-## Phase 2 — Dev environment & "hello clock" (design.md M1)
+# TRACK A — No hardware required (start immediately) `[SW]`
 
-- [ ] Install toolchain (ESPHome via pipx, and/or ESP-IDF v5.5+).
-- [ ] Configure build for **16 MB flash + Octal PSRAM**; confirm enough headroom.
-- [ ] Bring up: Wi-Fi connection + NTP time (POSIX TZ) + a **clock face** on screen.
-- [ ] Capture first successful `esphome run` (USB) then an **OTA** update.
-- [ ] Add logging + a firmware-version constant.
+## A1. Decisions & repo prep  *(design.md Phase 0)*
 
-**Phase AC:** device boots, joins Wi-Fi, shows correct local time, and accepts an OTA flash.
+- [ ] **D1. Firmware approach** (ESPHome vs ESP-IDF vs Arduino) — design.md §7, §18 Q8.
+- [ ] **D2. `media_player` approach** — MQTT primitives + Universal Media Player (design.md §6.5, Q1).
+- [ ] **D3. Alarm modelling** — `switch`+`time`+`select` vs `alarm_control_panel`; one vs many (Q2).
+- [ ] **D4. MQTT broker** — HA Mosquitto add-on vs external (design.md §5).
+- [ ] **D5. Station policy** — which stations; HTTP vs HTTPS; licensing/geo (Q5).
+- [ ] **D6. Missed-alarm policy after power loss** (Q7).
+- [ ] Repo scaffolding: `.gitignore`, `LICENSE`, `secrets.example.yaml`, `ha/`, `firmware/`, `tools/` dirs.
+- [ ] Record all decisions back into design.md §18.
 
----
+## A2. Author the full firmware config  *(design.md M1/M3/M4/M5, without flashing)*
 
-## Phase 3 — MQTT plumbing (design.md M2)
+- [ ] Write the complete `alarmclock.yaml` (ESPHome) — or equivalent IDF skeleton.
+- [ ] Include all components up front: display, touch, audio/speaker, time/NTP,
+      Wi-Fi, MQTT, `switch`/`select`/`number`/`time`/`button`/`sensor`, alarm automations.
+- [ ] Set build flags for **16 MB flash + Octal PSRAM** (design.md §3.1/§13).
+- [ ] Validate the config schema: `esphome config alarmclock.yaml`.
+- [ ] **Compile the firmware without a device**: `esphome compile alarmclock.yaml`
+      (proves it builds; the `.bin` is ready to flash later).
+- [ ] Add a firmware-version constant + changelog entry.
 
-- [ ] Add `mqtt:` config with broker host/port/user/pass via `secrets.yaml` (never commit secrets).
-- [ ] Publish **availability** + LWT (`online`/`offline`) on a status topic.
-- [ ] Publish **discovery** for one dummy `switch`; confirm entity auto-appears in HA.
-- [ ] Implement the **device block** (`dev`/identifiers/manufacturer/model) shared by all entities.
-- [ ] Verify: HA restart, broker restart, device reboot → entity state persists/recovers.
+## A3. Design the MQTT interface  *(design.md M2, §9)*
 
-**Phase AC:** a test switch is created in HA purely via MQTT discovery and round-trips on/off.
+- [ ] Finalise topic scheme + node id + `unique_id`s for every entity (design.md §9.1).
+- [ ] Write the exact **discovery payloads** (JSON) for every entity (design.md §9.2, §6).
+- [ ] Define all `*/state` topics → command mapping and availability/LWT (design.md §9.3).
+- [ ] Document the contract in a `docs/mqtt-interface.md` (this is the firmware↔HA spec).
 
----
+## A4. Station list  *(design.md M3, §10.4)*
 
-## Phase 4 — Radio (design.md M3)
+- [ ] Curate the initial station list (name → URL, codec, bitrate).
+- [ ] Verify each URL resolves and is a supported codec (MP3/HTTP preferred).
+- [ ] Store as `data/stations.yaml` (or JSON) usable by firmware + simulator.
 
-- [ ] Choose audio stack (ESPHome speaker vs ESP32-audioI2S) and prove a single stream → speaker.
-- [ ] Build the **station list** (name → URL, codec, bitrate); prefer MP3/HTTP for reliability.
-- [ ] Implement **play / stop** radio (drive `PA_CTRL`, handle buffering in PSRAM).
-- [ ] Implement **volume** control + gentle **wake ramp**.
-- [ ] Implement **station select** and **next/prev**.
-- [ ] Report **now-playing** (station name / ICY title) to a sensor.
-- [ ] Expose over MQTT discovery: `switch.radio`, `select.station`, `number.volume`, `button.next/prev`, `sensor.now_playing` (design.md §6.2, §9).
-- [ ] Test 5–10 stations incl. one HTTPS-only + overnight soak (design.md §16).
+## A5. Home Assistant integration  *(design.md M3/M4, §6.5)*
 
-**Phase AC:** HA can turn radio on/off, pick a station and set volume; now-playing reflects reality; streams survive an overnight soak.
+- [ ] Write the **Universal Media Player** snippet → `ha/universal_media_player.yaml` (design.md §6.5).
+- [ ] Write any HA packages/automations (alarm dashboards, notifications).
+- [ ] Write a **mock HA entities** file (temporary `mqtt:` YAML or helpers) to
+      exercise the UI before the device exists.
+- [ ] Optionally stand up a **local Mosquitto + HA** in Docker to test discovery.
 
----
+## A6. Device simulator  *(enables end-to-end testing pre-hardware)*
 
-## Phase 5 — Alarm engine (design.md M4)
+- [ ] Write `tools/mqtt_sim.py` (Python `paho-mqtt`) that **impersonates the device**:
+  - publishes the same discovery payloads (A3),
+  - publishes availability + state,
+  - subscribes to command topics and updates state accordingly,
+  - simulates alarm firing / radio state / now-playing.
+- [ ] Use it to verify HA entities appear, command round-trips, availability on/off,
+      and the Universal Media Player façade — **all without the board**.
+- [ ] Reuse the same payloads verbatim in the firmware (single source of truth).
 
-- [ ] Implement on-device scheduling: time + days-of-week + enabled, persisted to NVS/flash.
-- [ ] Fire independently of HA/broker; recompute next trigger on TZ/DST change.
-- [ ] On fire: wake ramp + play radio (or tone) + show ringing screen.
-- [ ] Snooze (configurable minutes) and dismiss.
-- [ ] Report state: `sensor.next_alarm`, `sensor.alarm_state`.
-- [ ] Expose over MQTT discovery: `switch.alarm_enabled`, `time.alarm_time`, `select.alarm_days`, `number.snooze`, `button.snooze/dismiss`, alarm sensors (design.md §6.1, §9).
-- [ ] **Critical test:** alarm fires with HA and broker powered off (design.md §16).
-- [ ] Test DST transition + reboot persistence.
+## A7. CI  *(design.md §13.5)*
 
-**Phase AC:** alarm rings at the set time/day even when HA/broker are down; snooze/dismiss/enable work from HA.
+- [ ] GitHub Actions: run `esphome config` + `esphome compile` on push (works with no hardware).
+- [ ] Optionally lint `tools/` and validate `data/stations.*` against a schema.
+- [ ] On tag: publish release `.bin` + a web-installer manifest.
 
----
+## A8. Docs, hardware prep & ordering
 
-## Phase 6 — UI / UX (design.md M5)
-
-- [ ] LVGL screens: clock, radio, alarm-set, ringing, settings (design.md §12).
-- [ ] Touch interactions: play/pause, next/prev, snooze/stop, screen brightness.
-- [ ] Status indicators: alarm on/off, next alarm, Wi-Fi, radio state.
-- [ ] Idle/dim behaviour (e.g. dim at night), and pulsing on ring.
-
-**Phase AC:** the clock is usable entirely on-device without HA.
-
----
-
-## Phase 7 — Hardening, OTA & docs (design.md M6)
-
-- [ ] Watchdog + reconnect/backoff for Wi-Fi & MQTT.
-- [ ] Availability (LWT) correctly flips offline on power cut.
-- [ ] 72-hour soak with periodic Wi-Fi drop/restore (design.md §16).
-- [ ] OTA update path + **safe rollback** (keep factory/golden image).
-- [ ] Add the **HA Universal Media Player** snippet as `ha/universal_media_player.yaml` (design.md §6.5) and test.
+- [ ] Read the official **schematic PDF** and pre-verify the pin map (design.md §3.2) — no board needed.
+- [ ] Resolve **RTC** (Q3) and **speaker/amp** (Q4) from docs/listing before/at unboxing.
+- [ ] Order/confirm accessories (speaker if needed, USB-C PSU, microSD) (design.md §3.3).
 - [ ] Write user docs: setup, Wi-Fi/MQTT provisioning, changing stations, HA usage.
-- [ ] Secrets handling review (gitignore, `secrets.example.yaml`).
+- [ ] Note the **factory `.bin` recovery** procedure (design.md §13.6).
 
-**Phase AC:** device runs 72 h unattended; OTA works; docs let a fresh user set it up.
-
----
-
-## Phase 8 — Nice-to-haves (design.md M7)
-
-- [ ] Gentle multi-stage wake ramp / easing.
-- [ ] Album art / station logos on screen.
-- [ ] Editable station list from HA (config topic) — design.md §6.4.
-- [ ] Radio-Browser API search integration.
-- [ ] Multiple alarms (weekday/weekend sets).
-- [ ] Sleep timer / "off in N minutes".
-- [ ] Optional ESPHome **native-API `media_player`** alongside MQTT (design.md §6.5 option 2).
+**Track A AC:** firmware compiles; MQTT interface + discovery payloads are frozen;
+HA shows all entities (against the simulator); Universal Media Player works;
+CI green; pin map pre-verified. → *Everything left is hardware validation.*
 
 ---
 
-## Cross-cutting / ongoing
+# TRACK B — Hardware required `[HW]`
 
-- [ ] Keep `design.md` §18 open questions updated as decisions land.
-- [ ] Add `docs/images/` photos as hardware arrives.
-- [ ] CI: GitHub Actions building `esphome compile` / `idf.py build`; publish release `.bin` (design.md §13.5).
-- [ ] Define versioning + changelog.
+## B1. Unbox & bring-up  *(design.md M0, Phase 1)*
+
+- [ ] Unbox; photograph board + case; confirm case cut-outs (speaker grille, USB-C, touch).
+- [ ] **Confirm the pin map** against the board/schematic; correct design.md §3.2 if needed.
+- [ ] Power via USB-C; confirm `/dev/ttyACM*`; practise **BOOT** download mode.
+- [ ] Flash the **vendor factory firmware**; exercise display, touch, Wi-Fi, audio.
+- [ ] Confirm **audio out** (tones) and `PA_CTRL` (GPIO 7); confirm **display** (ST7789V2) + **touch** (CST816T).
+- [ ] Note MAC/hostname; archive the factory `.bin`.
+
+## B2. Flash our firmware & iterate  *(design.md M1)*
+
+- [ ] `esphome run alarmclock.yaml` over USB (first flash; Boot-mode trick if needed).
+- [ ] Bring up Wi-Fi + NTP + on-screen clock on real hardware.
+- [ ] Confirm OTA works; confirm PSRAM is detected.
+- [ ] Reconcile any config that assumed hardware (pins, timing) — feed back into A2.
+
+## B3. Radio validation  *(design.md M3)*
+
+- [ ] Prove a real stream → speaker; tune buffering.
+- [ ] Validate the curated stations on-device (incl. one HTTPS-only) + overnight soak.
+- [ ] Confirm volume + gentle wake ramp behave on real amp.
+- [ ] Verify now-playing/ICY metadata appears on the sensor.
+
+## B4. Alarm validation  *(design.md M4)*
+
+- [ ] Verify on-device scheduling, NVS persistence across reboot, DST transition.
+- [ ] **Critical:** alarm fires with HA and broker powered off.
+- [ ] Snooze/dismiss/enable-from-HA on real device.
+- [ ] Confirm RTC behaviour across power loss (Q3).
+
+## B5. Screen / UI validation  *(design.md M5)*
+
+- [ ] LVGL screens render correctly on the 240×240 panel; touch targets usable.
+- [ ] Idle/dim behaviour; ring pulse visible.
+
+## B6. Hardening, OTA & docs  *(design.md M6)*
+
+- [ ] Watchdog + Wi-Fi/MQTT reconnect/backoff.
+- [ ] Availability (LWT) flips offline on power cut — on real hardware.
+- [ ] 72-hour soak with periodic Wi-Fi drop/restore.
+- [ ] OTA + safe rollback (golden/factory image).
+- [ ] Finalise user docs with real screenshots/photos.
+
+**Track B AC:** device runs 72 h unattended; alarm reliable with HA offline; OTA works;
+a fresh user can set it up from the docs.
+
+---
+
+## Later / nice-to-haves  *(design.md M7)*
+
+- [ ] `[HW]` Multi-stage wake ramp / easing.
+- [ ] `[SW]` Editable station list from HA (config topic) — design.md §6.4.
+- [ ] `[SW]` Radio-Browser API search integration.
+- [ ] `[SW]` Multiple alarms (weekday/weekend sets).
+- [ ] `[SW]` Sleep timer / "off in N minutes".
+- [ ] `[HW]` Optional ESPHome native-API `media_player` alongside MQTT (design.md §6.5 option 2).
 
 ---
 
 ## Critical path & dependencies
 
 ```
-Phase 0 (decisions)
-   └── Phase 1 (hardware bring-up)
-          └── Phase 2 (hello clock) ──► Phase 3 (MQTT plumbing)
-                                             ├── Phase 4 (radio)
-                                             └── Phase 5 (alarm engine)
-                                                     └── Phase 6 (UI)
-                                                            └── Phase 7 (hardening/OTA/docs)
-                                                                   └── Phase 8 (nice-to-haves)
+TRACK A (now, no hardware)                       TRACK B (board in hand)
+──────────────────────────                       ───────────────────────
+A1 decisions ──► A2 firmware config ─┐
+A1 ──► A3 MQTT interface ────────────┼──► A6 simulator ──► (HA verified)
+A1 ──► A5 HA integration ────────────┘         │
+A4 station list ───────────────────────────────┤
+A7 CI · A8 docs/schematic ─────────────────────┘
+                                               │
+                                               ▼
+                        B1 bring-up ─► B2 flash/iterate ─┬─► B3 radio
+                                                          ├─► B4 alarm  (highest risk)
+                                                          └─► B5 UI
+                                                                 └─► B6 hardening/OTA/soak
 ```
 
-- **Phase 1 blocks everything** — verify hardware/pins first.
-- **Phase 3 blocks Phases 4–5** — the MQTT/discovery plumbing is shared.
-- **Phase 5 (alarm) is the highest-risk item** — allocate extra soak/edge-case time.
+- **Track A is fully unblocked** — start now.
+- **A3 (MQTT interface) + A6 (simulator)** are the keystone: they let us build and
+  test the entire HA integration before hardware.
+- **Track B mostly validates** what Track A produced; expect small config back-ports.
 
 ---
 
 ## Immediate next actions
 
-1. Start **Phase 0** — lock D1–D4 (they gate the repo layout).
-2. Begin **Phase 1** — unbox, verify pin map, flash the vendor demo.
-3. Then scaffold the chosen toolchain (ESPHome `alarmclock.yaml`) and go for the "hello clock" in Phase 2.
+1. `[SW]` Do **A1** — lock D1–D4 (they gate repo layout and everything else).
+2. `[SW]` Do **A3** — freeze the MQTT interface (blocks A5/A6 and firmware).
+3. `[SW]` Scaffold **A2** (ESPHome `alarmclock.yaml`) and get `esphome compile` green in **A7**.
+4. `[SW]` Build **A6** simulator, then wire **A5** and confirm entities appear in HA.
+5. `[HW]` When the board arrives, jump to **B1**.
