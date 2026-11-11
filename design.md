@@ -731,6 +731,85 @@ next alarm / now playing / RSSI.)
 - GitHub Actions build matrix: `esphome compile` and/or `idf.py build`; publish
   release `.bin` + a web-installer manifest.
 
+### 13.6 Flashing quickstart (cheat-sheet)
+
+**One-time setup**
+
+```bash
+# Linux: add yourself to the dialout group for serial access, then re-login
+sudo usermod -aG dialout "$USER"
+
+# ESPHome (recommended path)
+pipx install esphome            # or: pip install esphome
+# ESP-IDF (alternative)
+#   install v5.5+ via https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/
+#   then: . $IDF_PATH/export.sh
+```
+
+**Find the serial port**
+
+```bash
+ls /dev/ttyACM* /dev/ttyUSB* 2>/dev/null   # native USB → usually /dev/ttyACM0
+```
+
+**Build + flash**
+
+```bash
+# --- ESPHome (recommended) ---
+esphome compile alarmclock.yaml                 # build only
+esphome run     alarmclock.yaml                 # build + flash via USB (auto-detects port)
+esphome run     alarmclock.yaml --device /dev/ttyACM0
+esphome run     alarmclock.yaml --device alarmclock.local   # OTA over Wi-Fi (later)
+
+# --- ESP-IDF (custom firmware) ---
+idf.py set-target esp32s3
+idf.py build
+idf.py -p /dev/ttyACM0 flash monitor            # flash + open serial monitor
+
+# --- Arduino IDE ---
+#   Board: "ESP32S3 Dev Module", Flash: 16MB, PSRAM: OPI/Octal, USB CDC On Boot: Enabled
+#   Tools ▸ Port ▸ /dev/ttyACM0 ▸ click Upload
+```
+
+**Raw flashing with esptool (any toolchain, cross-platform)**
+
+```bash
+pip install esptool
+esptool.py --chip esp32s3 --port /dev/ttyACM0 chip_id        # sanity-check the link
+esptool.py --chip esp32s3 --port /dev/ttyACM0 erase_flash    # wipe (optional)
+# ESPHome/IDF users normally let the tool above handle this; for a single image:
+esptool.py --chip esp32s3 --port /dev/ttyACM0 write_flash 0x0 firmware.bin
+```
+
+**If the port isn't detected → manual download mode**
+
+1. Hold **BOOT**
+2. Plug in the USB-C cable
+3. Release **BOOT**
+4. Re-run the flash command.
+
+**Erase / recover**
+
+```bash
+esptool.py --chip esp32s3 --port /dev/ttyACM0 erase_flash     # full wipe
+# then re-flash the factory or your image at 0x0
+```
+
+**Windows GUI alternative:** Espressif **Flash Download Tool** — select
+*ESP32-S3* + *USB*, pick the `.bin`, set address (`0x00` for vendor images),
+tick the checkbox, click **START**.
+https://www.espressif.com/en/support/download/other-tools
+
+**After first flash → OTA (no cable):**
+
+```bash
+esphome run alarmclock.yaml --device alarmclock.local    # ESPHome wireless update
+# ESP-IDF: esp_https_ota; Arduino: ArduinoOTA
+```
+
+> Keep a copy of the factory/vendor `.bin` for recovery, and note the board's
+> MAC/hostname so you can find it on the network after OTA.
+
 ---
 
 ## 14. Provisioning & OTA updates
