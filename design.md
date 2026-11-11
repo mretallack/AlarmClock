@@ -877,13 +877,71 @@ esphome run alarmclock.yaml --device alarmclock.local    # ESPHome wireless upda
 
 ## 14. Provisioning & OTA updates
 
-- **Wi-Fi provisioning:** ESPHome captive portal / Improv over USB-serial, or a
-  first-boot AP. Store credentials in NVS.
-- **MQTT credentials:** broker host/port/user/pass + discovery prefix
-  configurable (ESPHome `mqtt:` / build-time secrets). Never commit secrets.
-- **OTA:** ESPHome OTA, ESP-IDF `esp_https_ota`, or ArduinoOTA. Provide a
-  firmware-version sensor and a HA "update" indication.
-- **Safe rollback:** keep a golden factory image; document flashing it back.
+### 14.1 Getting the device onto Wi-Fi
+
+Options (all ESP32-S3; ESPHome component names in brackets):
+
+| Method | How it works | Pros | Cons | Verdict |
+|--------|--------------|------|------|---------|
+| **Compile-time credentials** (`wifi:`) | SSID/password baked into the YAML (via `secrets`) and flashed | Dead simple; works fully offline | Rebuild + reflash per network; secrets in build | Fine for a fixed home; poor for gifting |
+| **Improv via Serial** (`improv_serial`) | Configure Wi-Fi from a browser (ESPHome Dashboard / web installer) over the USB-C serial — no app | Zero-config first flash; no app; works before Wi-Fi exists | Needs a USB cable + Chrome/Edge | ✅ **Recommended for first setup** |
+| **Improv via BLE** (`improv_ble`, formerly `esp32_improv`) | Configure over Bluetooth LE from the ESPHome Dashboard / HA app | No cable after flashing | BLE stack uses **lots of RAM** — ESPHome explicitly warns against combining with audio components (which we have) | Optional; only if RAM budget allows |
+| **Captive portal / fallback AP** (`captive_portal` + `ap:`) | After ~1 min of failed Wi-Fi, device raises a hotspot; you set credentials at `http://192.168.4.1` | Excellent recovery & re-provisioning; no cable | Device must boot; creds can be overwritten by a later serial upload | ✅ **Recommended as ongoing fallback** |
+| **On-device setup UI** (our touchscreen) | Screen lists SSIDs; touch to enter password + set device name | Fully self-contained; uses the hardware we have | Extra LVGL UI work | ✅ Attractive; target for v2 |
+| **Wi-Fi Easy Connect (DPP) / QR** (`wifi_provisioning`) | ESP-IDF DPP provisioning via QR code scan | No typing | More complex; niche tooling | Not recommended |
+| **WPS** | ESP-IDF WPS push-button APIs | No password typing | **Insecure, widely deprecated, unsupported by ESPHome/HA**, absent on many APs | ❌ **Avoid** |
+
+**Recommendation:** first boot → **Improv via Serial** (flash + hand it the Wi-Fi
+from the ESPHome Dashboard / web installer); keep the **captive portal** as the
+always-available fallback for re-provisioning. **Do not use WPS.**
+
+Additional Wi-Fi notes:
+- Support **multiple SSIDs** (`wifi: networks:`) and prefer a **static IP** —
+  ESPHome recommends a static IP as it greatly improves reconnect time.
+- Credentials persist in NVS.
+
+### 14.2 Setting the `device_id` on the device
+
+Follows the namespacing rules in §9.1/§9.4. Ways to *set* it:
+
+| Method | Persistence | Notes |
+|--------|-------------|-------|
+| **MAC-derived default (no provisioning)** | computed at boot | Zero-config; topics guaranteed unique. ✅ **Default** |
+| **Build-time substitution** (`device_id`/name in YAML; per-unit build) | firmware | Simple; one build per known unit; fine for a small fleet |
+| **Runtime → NVS** (set once) — via: | NVS | Better for a single "any-unit" build |
+| ↳ captive-portal **custom field** | NVS | Extend the portal page with an id/name box |
+| ↳ HA **`text` entity** (set name/id, persist) | NVS | Configure from HA once on the network |
+| ↳ **microSD `config.json`** | card | No rebuild; edit the card to rename |
+| ↳ **serial console** | NVS | Bench/dev convenience |
+| ↳ **first-boot AP form** | NVS | Like the captive portal |
+| ↳ MQTT **command topic** | NVS | ⚠️ Renaming changes topics — use carefully |
+
+**Recommendation:**
+1. **Default `device_id` = MAC-derived** → works out-of-the-box on any unit, unique
+   and stable across reboots/OTA.
+2. Allow an **optional friendly name**, set at runtime and **persisted in NVS**
+   (HA `text` entity or `config.json` on SD), used for the display and the HA
+   device `name`.
+3. For a known/batch build, a **build-time substitution** is perfectly fine.
+
+> 💡 **Decouple "topic id" from "human name":** HA lets you rename the device and
+> entities in the UI independently of `unique_id`. So keep topics keyed on the
+> stable id, and rename for humans in HA — no firmware change needed.
+
+### 14.3 MQTT credentials
+
+- Broker host/port/user/pass + discovery prefix, configured via ESPHome `mqtt:` /
+  build-time secrets or a runtime provision. **Never commit secrets** (use
+  `secrets.yaml` / env; keep `secrets.example.yaml` in the repo).
+
+### 14.4 OTA
+
+- **ESPHome OTA**, ESP-IDF `esp_https_ota`, or ArduinoOTA.
+- Provide a firmware-version sensor and a HA "update available" indication.
+
+### 14.5 Safe rollback
+
+- Keep a golden/factory image and document re-flashing it (design.md §13.6).
 
 ---
 
@@ -994,6 +1052,15 @@ esphome run alarmclock.yaml --device alarmclock.local    # ESPHome wireless upda
 - ES7210 audio ADC: https://esphome.io/components/audio_adc/es7210.html
 - Time / SNTP: https://esphome.io/components/time/sntp.html
 - Media player over MQTT limitation: https://github.com/esphome/issues/issues/4882
+
+### Provisioning / Wi-Fi onboarding
+- Improv standard (open Wi-Fi setup): https://www.improv-wifi.com/
+- Improv via Serial (ESPHome): https://esphome.io/components/improv_serial/
+- Improv via BLE (ESPHome): https://esphome.io/components/improv_ble/
+- Wi-Fi component (ESPHome): https://esphome.io/components/wifi/
+- Captive portal / fallback AP (ESPHome): https://esphome.io/components/captive_portal/
+- ESP Web Tools (browser flasher): https://esphome.github.io/esp-web-tools/
+- ESP-IDF Wi-Fi provisioning (SoftAP/BLE): https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/provisioning/wifi_provisioning.html
 
 ### Audio libraries / radio projects
 - ESP32-audioI2S: https://github.com/schreibfaul1/ESP32-audioI2S

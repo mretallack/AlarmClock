@@ -44,6 +44,8 @@ A7 CI, A8 docs
 - [ ] **D5. Station policy** — which stations; HTTP vs HTTPS; licensing/geo (Q5).
 - [ ] **D6. Missed-alarm policy after power loss** (Q7).
 - [ ] **D7. Device naming / `device_id` scheme** — friendly slug vs MAC-derived; how `device_id` is set per unit (design.md §9.4).
+- [ ] **D8. Wi-Fi onboarding method** — Improv-serial (+ captive-portal fallback) vs on-device setup UI; confirm **no WPS** (design.md §14.1).
+- [ ] **D9. `device_id` provisioning mechanism** — MAC default + optional NVS/SD friendly name (design.md §14.2).
 - [ ] Repo scaffolding: `.gitignore`, `LICENSE`, `secrets.example.yaml`, `ha/`, `firmware/`, `tools/` dirs.
 - [ ] Record all decisions back into design.md §18.
 
@@ -52,6 +54,10 @@ A7 CI, A8 docs
 - [ ] Write the complete `alarmclock.yaml` (ESPHome) — or equivalent IDF skeleton.
 - [ ] Implement **per-device `device_id`**: config override with MAC-derived
       default, **persisted in NVS** and stable across reboots/OTA (design.md §9.4).
+- [ ] Add **Wi-Fi onboarding**: `improv_serial` (first setup) + `captive_portal`
+      fallback; support `wifi: networks:` + static IP (design.md §14.1).
+- [ ] Wire the **`device_id` provisioning path** chosen in D9 (e.g. HA `text`
+      entity or `config.json` on SD → NVS) (design.md §14.2).
 - [ ] Include all components up front: display, touch, audio/speaker, time/NTP,
       Wi-Fi, MQTT, `switch`/`select`/`number`/`time`/`button`/`sensor`, alarm automations.
 - [ ] Set build flags for **16 MB flash + Octal PSRAM** (design.md §3.1/§13).
@@ -142,6 +148,8 @@ CI green; pin map pre-verified. → *Everything left is hardware validation.*
 - [ ] Reconcile any config that assumed hardware (pins, timing) — feed back into A2.
 - [ ] Provision a real **`device_id`**/friendly name; confirm it persists across
       reboot/OTA and that the clock appears as its own HA device (design.md §9.4).
+- [ ] Test **Wi-Fi onboarding** end-to-end: Improv-serial first setup + captive
+      portal fallback; confirm creds persist (design.md §14.1).
 
 ## B3. Radio validation  *(design.md M3)*
 
