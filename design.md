@@ -165,7 +165,7 @@ I²C addresses: **ES8311 = 0x18** (CE low) / 0x19; ES7210 = 0x40 (typical).
 | Speaker (8Ω, ~2–3 W) | Board has a codec+DAC but the amp output/speaker may need adding | Confirm onboard speaker vs. header |
 | LiPo battery | Optional; not required for a bedside clock | Ordered variant has no battery |
 | USB-C power supply | Mains power for a bedside clock | 5 V, ≥1 A |
-| Enclosure | Bedside-friendly case | 3D-print or off-the-shelf |
+| ~~Enclosure~~ | **Not needed** — the `-EN` variant ships in a square plastic case (§3.1) | Only if a custom/bespoke enclosure is later wanted |
 
 > Confirm whether the ordered board includes an onboard speaker and the exact
 > connector for an external one — the Amazon listing mentions dual microphones
@@ -821,7 +821,9 @@ next alarm / now playing / RSSI.)
    Radio-Browser API?
 7. **Missed-alarm policy** after power loss (fire on boot if late?).
 8. **Firmware approach:** ESPHome vs ESP-IDF vs Arduino — final decision.
-9. **Enclosure** and bedside form factor.
+9. **Placement & case fit:** confirm the case cut-outs (speaker grille, USB-C,
+   touch access) and where the clock sits bedside; only design a custom
+   enclosure if the included case proves unsuitable.
 10. **Licence** for this repo (Apache-2.0 to match vendor code?).
 
 ---
