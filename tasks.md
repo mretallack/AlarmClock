@@ -43,12 +43,15 @@ A7 CI, A8 docs
 - [ ] **D4. MQTT broker** — HA Mosquitto add-on vs external (design.md §5).
 - [ ] **D5. Station policy** — which stations; HTTP vs HTTPS; licensing/geo (Q5).
 - [ ] **D6. Missed-alarm policy after power loss** (Q7).
+- [ ] **D7. Device naming / `device_id` scheme** — friendly slug vs MAC-derived; how `device_id` is set per unit (design.md §9.4).
 - [ ] Repo scaffolding: `.gitignore`, `LICENSE`, `secrets.example.yaml`, `ha/`, `firmware/`, `tools/` dirs.
 - [ ] Record all decisions back into design.md §18.
 
 ## A2. Author the full firmware config  *(design.md M1/M3/M4/M5, without flashing)*
 
 - [ ] Write the complete `alarmclock.yaml` (ESPHome) — or equivalent IDF skeleton.
+- [ ] Implement **per-device `device_id`**: config override with MAC-derived
+      default, **persisted in NVS** and stable across reboots/OTA (design.md §9.4).
 - [ ] Include all components up front: display, touch, audio/speaker, time/NTP,
       Wi-Fi, MQTT, `switch`/`select`/`number`/`time`/`button`/`sensor`, alarm automations.
 - [ ] Set build flags for **16 MB flash + Octal PSRAM** (design.md §3.1/§13).
@@ -60,6 +63,13 @@ A7 CI, A8 docs
 ## A3. Design the MQTT interface  *(design.md M2, §9)*
 
 - [ ] Finalise topic scheme + node id + `unique_id`s for every entity (design.md §9.1).
+- [ ] Namespace **all** topics/`unique_id`s/`dev.ids` by a per-device id so
+      **multiple clocks** coexist (design.md §9.1, §9.4). Define the `device_id`
+      source (config slug or MAC) and the resulting patterns.
+- [ ] Ensure each clock groups as its own HA device (shared `dev` block) and add a
+      friendly device `name`.
+- [ ] Evaluate **device-based discovery** (`homeassistant/device/<device_id>/config`,
+      one message per device) vs per-entity config messages (design.md §9.4).
 - [ ] Write the exact **discovery payloads** (JSON) for every entity (design.md §9.2, §6).
 - [ ] Define all `*/state` topics → command mapping and availability/LWT (design.md §9.3).
 - [ ] Document the contract in a `docs/mqtt-interface.md` (this is the firmware↔HA spec).
@@ -72,7 +82,7 @@ A7 CI, A8 docs
 
 ## A5. Home Assistant integration  *(design.md M3/M4, §6.5)*
 
-- [ ] Write the **Universal Media Player** snippet → `ha/universal_media_player.yaml` (design.md §6.5).
+- [ ] Write the **Universal Media Player** snippet → `ha/universal_media_player.yaml` (design.md §6.5) — templated/written **one per device**.
 - [ ] Write any HA packages/automations (alarm dashboards, notifications).
 - [ ] Write a **mock HA entities** file (temporary `mqtt:` YAML or helpers) to
       exercise the UI before the device exists.
@@ -81,12 +91,16 @@ A7 CI, A8 docs
 ## A6. Device simulator  *(enables end-to-end testing pre-hardware)*
 
 - [ ] Write `tools/mqtt_sim.py` (Python `paho-mqtt`) that **impersonates the device**:
+  - takes a `--device-id` (and optional `--name`) argument so **two+ simulators
+    can run simultaneously** to prove multi-clock support (design.md §9.4),
   - publishes the same discovery payloads (A3),
   - publishes availability + state,
   - subscribes to command topics and updates state accordingly,
   - simulates alarm firing / radio state / now-playing.
 - [ ] Use it to verify HA entities appear, command round-trips, availability on/off,
       and the Universal Media Player façade — **all without the board**.
+- [ ] Run **two simulators at once** (different `device_id`s) to prove both clocks
+      appear as separate HA devices with no topic clashes (design.md §9.4).
 - [ ] Reuse the same payloads verbatim in the firmware (single source of truth).
 
 ## A7. CI  *(design.md §13.5)*
@@ -126,6 +140,8 @@ CI green; pin map pre-verified. → *Everything left is hardware validation.*
 - [ ] Bring up Wi-Fi + NTP + on-screen clock on real hardware.
 - [ ] Confirm OTA works; confirm PSRAM is detected.
 - [ ] Reconcile any config that assumed hardware (pins, timing) — feed back into A2.
+- [ ] Provision a real **`device_id`**/friendly name; confirm it persists across
+      reboot/OTA and that the clock appears as its own HA device (design.md §9.4).
 
 ## B3. Radio validation  *(design.md M3)*
 

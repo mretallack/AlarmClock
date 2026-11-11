@@ -11,6 +11,8 @@ Home Assistant will be able to:
 - Turn the radio on/off and select a station
 - Control volume
 - (Ideally) expose the radio as a `media_player` entity
+- Support **multiple clocks**, each appearing as its own Home Assistant device
+  (all MQTT topics/entities namespaced by a unique per-device id)
 
 The device itself provides an on-screen clock, touch controls, a local
 speaker, and snooze/dismiss buttons.

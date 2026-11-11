@@ -244,11 +244,14 @@ auto-creates entities from retained config payloads:
 
 - Component discovery:
   `homeassistant/<component>/<node_id>/<object_id>/config`
-  e.g. `homeassistant/switch/alarmclock_ab12/alarm_enabled/config`
+  e.g. `homeassistant/switch/bedroom/alarm_enabled/config`
 - Device discovery (one message describes a whole device + its components):
   `homeassistant/device/<node_id>/config` with a `components` map.
 - Payloads are JSON, **retained**, and use short aliases (`~` = base topic,
   `cmd_t`, `stat_t`, `uniq_id`, `dev`, `avty_t` …).
+
+> `<node_id>` is the **per-device id** (see §9.4). It must be unique per clock so
+> multiple alarm clocks coexist on one broker without collisions.
 
 References:
 - https://www.home-assistant.io/integrations/mqtt/#mqtt-discovery
@@ -299,7 +302,11 @@ an accepted trade-off.
 
 ## 6. Feature / entity model
 
-Proposed HA entities (all via MQTT discovery unless noted):
+Proposed HA entities (all via MQTT discovery unless noted). Entity object-ids
+below are shown with the `alarmclock_` prefix for one example device; in the real
+system they are namespaced **per device** as `alarmclock_<device_id>_<role>`
+(e.g. `alarmclock_bedroom_alarm_enabled`, `alarmclock_kitchen_volume`) and each
+clock is a **separate HA device** — see §9.4.
 
 ### 6.1 Alarm
 
@@ -353,7 +360,8 @@ Proposed HA entities (all via MQTT discovery unless noted):
 ### 6.5 Exposing a real `media_player` (no custom component)
 
 Because HA's built-in MQTT integration has **no `media_player` platform** (§5.2),
-we surface a proper `media_player.alarmclock` entity in three ways, none of which
+we surface a proper `media_player` entity **per clock** (e.g.
+`media_player.bedroom_alarm_clock`) in three ways, none of which
 require writing a custom component:
 
 1. **Universal Media Player (recommended, core integration) — works with our
@@ -371,44 +379,44 @@ require writing a custom component:
 #### Example Universal Media Player config (wraps the MQTT entities)
 
 ```yaml
-# configuration.yaml
+# configuration.yaml — one entry PER alarm clock (repeat & rename per device)
 media_player:
   - platform: universal
-    name: Alarm Clock
-    unique_id: alarmclock_media_player
+    name: "Bedroom Alarm Clock"
+    unique_id: alarmclock_bedroom_media_player
     device_class: speaker
     # Underlying MQTT-discovered entities created via discovery (§9)
     children:
-      - switch.alarmclock_radio
+      - switch.alarmclock_bedroom_radio
     commands:
       turn_on:
         service: switch.turn_on
-        target: { entity_id: switch.alarmclock_radio }
+        target: { entity_id: switch.alarmclock_bedroom_radio }
       turn_off:
         service: switch.turn_off
-        target: { entity_id: switch.alarmclock_radio }
+        target: { entity_id: switch.alarmclock_bedroom_radio }
       volume_set:
         service: number.set_value
-        target: { entity_id: number.alarmclock_volume }
+        target: { entity_id: number.alarmclock_bedroom_volume }
         data: { value: "{{ (volume_level * 100) | round(0) | int }}" }
       volume_up:
         service: number.set_value
-        target: { entity_id: number.alarmclock_volume }
-        data: { value: "{{ (state_attr('number.alarmclock_volume','value') | float(0) + 5) | int }}" }
+        target: { entity_id: number.alarmclock_bedroom_volume }
+        data: { value: "{{ (state_attr('number.alarmclock_bedroom_volume','value') | float(0) + 5) | int }}" }
       volume_down:
         service: number.set_value
-        target: { entity_id: number.alarmclock_volume }
-        data: { value: "{{ (state_attr('number.alarmclock_volume','value') | float(0) - 5) | int }}" }
+        target: { entity_id: number.alarmclock_bedroom_volume }
+        data: { value: "{{ (state_attr('number.alarmclock_bedroom_volume','value') | float(0) - 5) | int }}" }
       select_source:
         service: select.select_option
-        target: { entity_id: select.alarmclock_station }
+        target: { entity_id: select.alarmclock_bedroom_station }
         data: { option: "{{ source }}" }
     attributes:
-      state: "{{ 'playing' if is_state('switch.alarmclock_radio','on') else 'idle' }}"
-      source: "{{ states('select.alarmclock_station') }}"
-      source_list: "{{ state_attr('select.alarmclock_station','options') }}"
-      volume_level: "{{ (states('number.alarmclock_volume') | float(0) / 100) | round(2) }}"
-      media_title: "{{ states('sensor.alarmclock_now_playing') }}"
+      state: "{{ 'playing' if is_state('switch.alarmclock_bedroom_radio','on') else 'idle' }}"
+      source: "{{ states('select.alarmclock_bedroom_station') }}"
+      source_list: "{{ state_attr('select.alarmclock_bedroom_station','options') }}"
+      volume_level: "{{ (states('number.alarmclock_bedroom_volume') | float(0) / 100) | round(2) }}"
+      media_title: "{{ states('sensor.alarmclock_bedroom_now_playing') }}"
 ```
 
 > Notes:
@@ -420,6 +428,9 @@ media_player:
 > - This YAML is the *only* manual config step; all underlying entities remain
 >   MQTT-discovered. Keep it in the repo as a HA package/snippet (e.g.
 >   `ha/universal_media_player.yaml`) so it's version-controlled.
+> - **Multi-device:** add one `media_player:` entry **per clock**, each with its
+>   own `name`/`unique_id` and its own `alarmclock_<device_id>_*` entity refs
+>   (§9.4). The file can be templated/duplicated per device id.
 
 ---
 
@@ -519,87 +530,139 @@ component.
 
 ## 9. MQTT topic & discovery design
 
-### 9.1 Base topics
+### 9.1 Base topics (per device)
 
-- Node id: `alarmclock` (plus `unique_id` per entity for HA).
-- Base/state topic root: `alarmclock/` (e.g. `alarmclock/alarm/set`).
-- Discovery prefix: `homeassistant` (HA default).
-- Availability topic: `alarmclock/status` (`online` via retained publish +
-  LWT `offline`).
+Every clock uses a **unique `device_id`** so multiple alarm clocks can share one
+MQTT broker without collisions.
+
+**`device_id` source (in priority order):**
+1. Explicit config value (build-time/provisioning) — a friendly slug such as
+   `bedroom`, `kitchen`, `office`, `guest-room`.
+2. Otherwise **derived from the ESP32 MAC** (e.g. `a4cf12b8d61f`) — guaranteed
+   unique, stable across reboots/OTA.
+
+**Namespacing derived from `device_id`:**
+
+| Thing | Pattern | Example (`device_id = bedroom`) |
+|-------|---------|---------------------------------|
+| Base topic root | `alarmclock/<device_id>/` | `alarmclock/bedroom/` |
+| Discovery topic | `homeassistant/<component>/<device_id>/<object>/config` | `homeassistant/switch/bedroom/alarm_enabled/config` |
+| `unique_id` | `alarmclock_<device_id>_<role>` | `alarmclock_bedroom_alarm_enabled` |
+| Availability topic | `alarmclock/<device_id>/status` | `alarmclock/bedroom/status` |
+| HA device identifier | `alarmclock-<device_id>` | `alarmclock-bedroom` |
+| Discovery prefix | `homeassistant` (HA default) | — |
+
+Availability is `online` (retained) + LWT `offline`.
 
 ### 9.2 Example discovery payloads
 
+All examples below use `device_id = bedroom`. Substitute each device's own id.
+
 **Switch — alarm enabled**
 
-Topic: `homeassistant/switch/alarmclock/alarm_enabled/config`
+Topic: `homeassistant/switch/bedroom/alarm_enabled/config`
 
 ```json
 {
   "name": "Alarm Enabled",
-  "uniq_id": "alarmclock_alarm_enabled",
-  "cmd_t": "alarmclock/alarm/enabled/set",
-  "stat_t": "alarmclock/alarm/enabled/state",
-  "avty_t": "alarmclock/status",
-  "dev": { "ids": "alarmclock-esp32", "name": "Alarm Clock",
+  "uniq_id": "alarmclock_bedroom_alarm_enabled",
+  "cmd_t": "alarmclock/bedroom/alarm/enabled/set",
+  "stat_t": "alarmclock/bedroom/alarm/enabled/state",
+  "avty_t": "alarmclock/bedroom/status",
+  "dev": { "ids": "alarmclock-bedroom", "name": "Bedroom Alarm Clock",
            "mf": "waveshare", "mdl": "ESP32-S3-Touch-LCD-1.54" }
 }
 ```
 
 **Time — alarm time**
 
-Topic: `homeassistant/time/alarmclock/alarm_time/config`
+Topic: `homeassistant/time/bedroom/alarm_time/config`
 
 ```json
 {
   "name": "Alarm Time",
-  "uniq_id": "alarmclock_alarm_time",
-  "cmd_t": "alarmclock/alarm/time/set",
-  "stat_t": "alarmclock/alarm/time/state",
-  "avty_t": "alarmclock/status",
-  "dev": { "ids": "alarmclock-esp32" }
+  "uniq_id": "alarmclock_bedroom_alarm_time",
+  "cmd_t": "alarmclock/bedroom/alarm/time/set",
+  "stat_t": "alarmclock/bedroom/alarm/time/state",
+  "avty_t": "alarmclock/bedroom/status",
+  "dev": { "ids": "alarmclock-bedroom" }
 }
 ```
 
 **Select — station**
 
-Topic: `homeassistant/select/alarmclock/station/config`
+Topic: `homeassistant/select/bedroom/station/config`
 
 ```json
 {
   "name": "Station",
-  "uniq_id": "alarmclock_station",
-  "cmd_t": "alarmclock/radio/station/set",
-  "stat_t": "alarmclock/radio/station/state",
+  "uniq_id": "alarmclock_bedroom_station",
+  "cmd_t": "alarmclock/bedroom/radio/station/set",
+  "stat_t": "alarmclock/bedroom/radio/station/state",
   "options": ["BBC Radio 4", "BBC Radio 6 Music", "Classic FM", "Absolute Radio"],
-  "avty_t": "alarmclock/status",
-  "dev": { "ids": "alarmclock-esp32" }
+  "avty_t": "alarmclock/bedroom/status",
+  "dev": { "ids": "alarmclock-bedroom" }
 }
 ```
 
 **Number — volume**
 
-Topic: `homeassistant/number/alarmclock/volume/config`
+Topic: `homeassistant/number/bedroom/volume/config`
 
 ```json
 {
   "name": "Volume",
-  "uniq_id": "alarmclock_volume",
-  "cmd_t": "alarmclock/radio/volume/set",
-  "stat_t": "alarmclock/radio/volume/state",
+  "uniq_id": "alarmclock_bedroom_volume",
+  "cmd_t": "alarmclock/bedroom/radio/volume/set",
+  "stat_t": "alarmclock/bedroom/radio/volume/state",
   "min": 0, "max": 100, "step": 1, "unit_of_meas": "%",
-  "avty_t": "alarmclock/status",
-  "dev": { "ids": "alarmclock-esp32" }
+  "avty_t": "alarmclock/bedroom/status",
+  "dev": { "ids": "alarmclock-bedroom" }
 }
 ```
 
 (Also: `switch` for radio, `button`s for snooze/dismiss/next/prev, `sensor`s for
-next alarm / now playing / RSSI.)
+next alarm / now playing / RSSI — each namespaced with the same `device_id`.)
 
 ### 9.3 State reporting
 
 - Device publishes its own state on `*/state` topics (retained) so HA reflects
   reality and survives restarts.
 - Device republishes discovery payloads on connect (retained) for idempotence.
+
+### 9.4 Multi-device (multiple alarm clocks)
+
+The design **must support several clocks on one broker**, each appearing as its
+own HA device. This is achieved purely by namespacing on `device_id` (§9.1):
+
+- **Isolation:** every topic, `unique_id` and HA `dev.ids` is namespaced by
+  `device_id`, so N clocks never collide.
+- **HA grouping:** all entities for one clock share the same `dev` block
+  (`ids: alarmclock-<device_id>`, plus `name`/`mf`/`mdl`), so HA groups them
+  under one device card per clock.
+- **Naming:** set a friendly `name` (e.g. *Bedroom Alarm Clock*) via the config
+  value for `device_id` (or an explicit device name); the `device_id` slug should
+  be uniqueness-safe (lowercase, `[a-z0-9-]`, no spaces).
+- **`device_id` stability:** it is resolved once and **persisted in NVS**, so it
+  never changes across reboots or OTA. A MAC-derived default guarantees
+  uniqueness out of the box; a friendly slug is opt-in.
+- **Provisioning:** each unit is flashed with its `device_id`/name (build-time
+  substitution or first-boot config). See §14.
+- **HA side:** one **Universal Media Player** entry per device (§6.5); dashboards
+  can be generated per device id.
+- **Option — device-based discovery:** instead of one retained config message per
+  entity, publish a single `homeassistant/device/<device_id>/config` message
+  listing all components (`cmps`). Cleaner for many entities and naturally
+  per-device; consider adopting this (§9, §5.1).
+- **Backwards-compat:** a single device without an explicit id still works
+  (MAC-derived id); the scheme is uniform.
+
+**Example: two clocks**
+
+| device_id | HA device | media_player | discovery topic root |
+|-----------|-----------|--------------|----------------------|
+| `bedroom` | Bedroom Alarm Clock | `media_player.bedroom_alarm_clock` | `homeassistant/.../bedroom/...` |
+| `kitchen` | Kitchen Alarm Clock | `media_player.kitchen_alarm_clock` | `homeassistant/.../kitchen/...` |
 
 ---
 
@@ -885,10 +948,11 @@ esphome run alarmclock.yaml --device alarmclock.local    # ESPHome wireless upda
 
 1. **`media_player` — RESOLVED:** use MQTT discovery for all primitive entities
    (switch/select/number/sensor/button/time) **plus a built-in Universal Media
-   Player** (§6.5) to expose a real `media_player.alarmclock` **without any
+   Player** (§6.5) to expose a real `media_player` **per clock** (e.g.
+   `media_player.bedroom_alarm_clock`) **without any
    custom HA component**. If we build on ESPHome we *additionally* get a native
    media_player via its API at no extra cost (optional). No custom integration
-   required.
+   required. Each clock is a separate HA device namespaced by `device_id` (§9.4).
 2. **Alarm modelling:** simple `switch`+`time`+`select`, or use the
    `alarm_control_panel` MQTT component? One alarm or multiple?
 3. **Board RTC:** is there a discrete I²C RTC chip, and which (PCF85063?)?
