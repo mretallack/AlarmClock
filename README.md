@@ -23,6 +23,33 @@ so it still rings if Home Assistant or the broker is down.
 > [`docs/mqtt-interface.md`](docs/mqtt-interface.md) (firmware↔HA contract) ·
 > [`docs/setup.md`](docs/setup.md) (build/install/use).
 
+## Build & flash
+
+```bash
+# 0. install ESPHome, then copy + fill in the secrets template
+pip install esphome
+cp secrets.example.yaml firmware/secrets.yaml     # Wi-Fi SSID/password + MQTT broker creds
+
+# 1. validate + build with no hardware attached (also runs in CI)
+esphome config  firmware/alarmclock.yaml
+esphome compile firmware/alarmclock.yaml
+
+# 2. flash over USB (first time) — board exposes native USB at /dev/ttyACM*
+esphome run     firmware/alarmclock.yaml
+
+# 3. later updates over the air
+esphome run     firmware/alarmclock.yaml --device alarmclock-<device_id>.local
+```
+
+On first boot the device comes up as a Wi-Fi hotspot for **Improv-serial /
+captive-portal** provisioning (no extra app needed), then publishes MQTT
+discovery so its entities appear in Home Assistant automatically.
+
+See [`firmware/README.md`](firmware/README.md) for the cheat-sheet,
+[`docs/setup.md`](docs/setup.md) for the full walkthrough, and
+[`design.md`](design.md) §13 for alternatives (ESP-IDF / Arduino) and
+BOOT-mode download details.
+
 ## Hardware
 
 - **Board:** Waveshare ESP32-S3-Touch-LCD-1.54 (`ESP32-S3-Touch-LCD-1.54-EN`)
