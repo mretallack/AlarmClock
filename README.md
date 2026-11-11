@@ -29,10 +29,9 @@ speaker, and snooze/dismiss buttons.
 
 ### Photos
 
-> 📷 **Case photo — pending upload.** Drop the image at
-> `docs/images/alarmclock-case.jpg` and it will be shown here.
->
-> `![Waveshare ESP32-S3-Touch-LCD-1.54 in its case](docs/images/alarmclock-case.jpg)`
+![Waveshare ESP32-S3-Touch-LCD-1.54 in its included square plastic case](docs/images/alarmclock-case.jpg)
+
+*The board in its included custom-molded square plastic case.*
 
 ## Links
 
