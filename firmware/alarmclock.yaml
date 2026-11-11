@@ -1,0 +1,268 @@
+# =============================================================================
+# AlarmClock — ESPHome firmware (DRAFT, Track A: no hardware required)
+# =============================================================================
+# Scope of this draft: Wi-Fi/MQTT/time plumbing + the alarm & radio ENTITIES
+# and alarm LOGIC. Display/touch/audio hardware config is stubbed at the end
+# (# TODO(hardware)) and wired up during bring-up (tasks.md Phase B).
+#
+# The `device_id` is derived from the MAC at runtime in the target design; for
+# ESPHome (which names the node at *compile* time) we substitute it here for now.
+# See firmware/README.md for the topic-naming note.
+#
+# Validate:  esphome config firmware/alarmclock.yaml
+# Build:     esphome compile firmware/alarmclock.yaml
+# Flash:     esphome run firmware/alarmclock.yaml
+# =============================================================================
+
+substitutions:
+  device_id: "b8d61f"          # last 6 hex of the MAC (set per unit / from build)
+  device_name: "alarmclock-${device_id}"
+  friendly_name: "Alarm Clock"
+  fw_version: "0.1.0-dev"
+
+esphome:
+  name: "${device_name}"
+  friendly_name: "${friendly_name}"
+  comment: "HA-integrated Internet radio alarm clock"
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: INFO
+
+# Native API is optional (we integrate via MQTT) but handy for logs/OTA/HA.
+api:
+  encryption:
+    key: !secret api_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+# --- Connectivity / provisioning (design.md §14.1) -------------------------
+improv_serial:                    # first-time Wi-Fi over USB serial (no app)
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # Prefer a static IP for fast reconnects (design.md §14.1)
+  manual_ip:
+    static_ip: 192.168.0.50
+    gateway: 192.168.0.1
+    subnet: 255.255.255.0
+  ap:                             # fallback hotspot
+    ssid: "AlarmClock-${device_id}"
+    password: !secret wifi_ap_password
+
+captive_portal:                   # fallback / re-provisioning
+
+# --- MQTT (HA integration) -------------------------------------------------
+# NOTE: ESPHome manages its own MQTT topics/discovery, namespaced by the node
+# name (${device_name} = alarmclock-<id>), so multiple clocks never collide.
+# docs/mqtt-interface.md is the canonical contract for the simulator / a future
+# hand-written implementation; see firmware/README.md.
+mqtt:
+  broker: !secret mqtt_broker
+  port: !secret mqtt_port
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  discovery: true
+  discovery_prefix: homeassistant
+  birth_message:
+    topic: "${device_name}/status"
+    payload: online
+  will_message:
+    topic: "${device_name}/status"
+    payload: offline
+
+# --- Time ------------------------------------------------------------------
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: "Europe/London"
+
+# --- Shared state (persisted to NVS) --------------------------------------
+globals:
+  - id: g_alarm_enabled
+    type: bool
+    restore_value: true
+    initial_value: "false"
+  - id: g_alarm_hour
+    type: int
+    restore_value: true
+    initial_value: "7"
+  - id: g_alarm_minute
+    type: int
+    restore_value: true
+    initial_value: "0"
+  - id: g_alarm_days
+    type: std::string
+    restore_value: true
+    initial_value: '"daily"'
+  - id: g_alarm_state
+    type: std::string
+    restore_value: false
+    initial_value: '"idle"'   # idle|ringing|snoozed|disabled
+  - id: g_station_idx
+    type: int
+    restore_value: true
+    initial_value: "0"
+  - id: g_radio_on
+    type: bool
+    restore_value: true
+    initial_value: "false"
+
+# --- Alarm entities --------------------------------------------------------
+switch:
+  - platform: template
+    name: "Alarm enabled"
+    id: sw_alarm_enabled
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_turn_on:
+      - lambda: id(g_alarm_enabled) = true;  id(g_alarm_state) = "idle";
+    on_turn_off:
+      - lambda: id(g_alarm_enabled) = false; id(g_alarm_state) = "disabled";
+
+datetime:
+  - platform: template
+    name: "Alarm time"
+    id: dt_alarm_time
+    type: time
+    optimistic: true
+    initial_value: "07:00:00"
+    on_value:
+      - lambda: |-
+          id(g_alarm_hour) = x.hour;
+          id(g_alarm_minute) = x.minute;
+
+select:
+  - platform: template
+    name: "Alarm repeat"
+    id: sel_alarm_days
+    optimistic: true
+    options: ["off", "once", "daily", "weekdays", "weekends", "custom"]
+    initial_option: "daily"
+    restore_value: true
+    on_value:
+      - lambda: id(g_alarm_days) = x;
+
+number:
+  - platform: template
+    name: "Snooze (min)"
+    id: num_snooze
+    optimistic: true
+    min_value: 1
+    max_value: 60
+    step: 1
+    initial_value: 10
+    restore_value: true
+  - platform: template
+    name: "Volume"
+    id: num_volume
+    optimistic: true
+    min_value: 0
+    max_value: 100
+    step: 1
+    initial_value: 30
+    restore_value: true
+
+button:
+  - platform: template
+    name: "Snooze"
+    on_press:
+      - lambda: id(g_alarm_state) = "snoozed";
+  - platform: template
+    name: "Dismiss"
+    on_press:
+      - lambda: |-
+          id(g_alarm_state) = id(g_alarm_enabled) ? "idle" : "disabled";
+  - platform: template
+    name: "Next station"
+    on_press:
+      - lambda: |-
+          id(g_station_idx) = (id(g_station_idx) + 1) % 4;  // TODO: station count
+  - platform: template
+    name: "Previous station"
+    on_press:
+      - lambda: |-
+          id(g_station_idx) = (id(g_station_idx) + 3) % 4;  // TODO: station count
+
+text_sensor:
+  - platform: template
+    name: "Alarm state"
+    id: ts_alarm_state
+    update_interval: 5s
+    lambda: return {id(g_alarm_state)};
+  - platform: template
+    name: "Now playing"
+    id: ts_now_playing
+    update_interval: 10s
+    lambda: |-
+      return id(g_radio_on) ? std::string("Station ") + to_string(id(g_station_idx)) : std::string("");
+  - platform: template
+    name: "Firmware"
+    entity_category: diagnostic
+    update_interval: 1h
+    lambda: |-
+      return std::string("${fw_version}");
+  - platform: template
+    name: "Device id"
+    entity_category: diagnostic
+    update_interval: 1h
+    lambda: |-
+      // Last 6 hex of the Wi-Fi MAC, lowercase — the per-device id (design.md §9.1).
+      std::string mac = esphome::get_mac_address();  // 12 lowercase hex chars
+      return mac.substr(mac.size() - 6);
+
+binary_sensor:
+  - platform: status
+    name: "MQTT"        # connectivity (also: ESPHome 'Status')
+
+sensor:
+  - platform: wifi_signal
+    name: "Wi-Fi signal"
+    update_interval: 60s
+    entity_category: diagnostic
+
+# --- Alarm engine (fires on-device, independent of HA) ---------------------
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          if (!id(sntp_time).now().is_valid()) return;
+          auto now = id(sntp_time).now();
+          // day matching
+          bool day_ok = true;
+          auto d = id(g_alarm_days);
+          if (d == "off") day_ok = false;
+          else if (d == "weekdays") day_ok = (now.day_of_week >= 2 && now.day_of_week <= 6);
+          else if (d == "weekends") day_ok = (now.day_of_week == 1 || now.day_of_week == 7);
+          // fire
+          if (id(g_alarm_enabled) && day_ok
+              && id(g_alarm_state) == "idle"
+              && now.hour == id(g_alarm_hour) && now.minute == id(g_alarm_minute)
+              && now.second < 2) {
+            id(g_alarm_state) = "ringing";
+            ESP_LOGI("alarm", "ALARM RINGING");
+            // TODO(hardware): ramp volume + start radio playback here
+          }
+
+# =============================================================================
+# TODO(hardware): enable during bring-up (pins per design.md §3.2)
+# -----------------------------------------------------------------------------
+# i2c:      sda 42, scl 41
+# display:  st7789v (spi: mosi 39, clk 38, cs 21, dc 45, rst 40, bl 46)
+# touch:    cst816 (i2c, int 48, rst 47)
+# audio:    es8311 (i2s: mclk 8, bclk 9, lrclk 10, dout 12; pa_ctrl 7)
+# speaker:  i2s_audio -> es8311
+# =============================================================================

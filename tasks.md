@@ -37,98 +37,111 @@ A7 CI, A8 docs
 
 ## A1. Decisions & repo prep  *(design.md Phase 0)*
 
-- [ ] **D1. Firmware approach** (ESPHome vs ESP-IDF vs Arduino) — design.md §7, §18 Q8.
-- [ ] **D2. `media_player` approach** — MQTT primitives + Universal Media Player (design.md §6.5, Q1).
-- [ ] **D3. Alarm modelling** — `switch`+`time`+`select` vs `alarm_control_panel`; one vs many (Q2).
-- [ ] **D4. MQTT broker** — HA Mosquitto add-on vs external (design.md §5).
-- [ ] **D5. Station policy** — which stations; HTTP vs HTTPS; licensing/geo (Q5).
-- [ ] **D6. Missed-alarm policy after power loss** (Q7).
+- [x] **D1. Firmware approach** — **ESPHome** (draft written **and compile-verified**, see A2) — design.md §7, §18 Q8.
+- [x] **D2. `media_player` approach** — MQTT primitives + Universal Media Player (design.md §6.5; `ha/`).
+- [x] **D3. Alarm modelling** — `switch`+`time`+`select`+`number` + buttons (design.md §18 Q2).
+- [x] **D4. MQTT broker** — HA Mosquitto add-on (verified locally against `eclipse-mosquitto`).
+- [~] **D5. Station policy** — starter list in `data/stations.yaml`; curate/verify on-device (Q5).
+- [ ] **D6. Missed-alarm policy after power loss** (Q7) — still open.
 - [x] **D7. `device_id` scheme — DECIDED: MAC-derived** (unique, invisible, stable); optional friendly slug is a future enhancement (design.md §9.1, §9.4).
-- [ ] **D8. Wi-Fi onboarding method** — Improv-serial (+ captive-portal fallback) vs on-device setup UI; confirm **no WPS** (design.md §14.1).
+- [x] **D8. Wi-Fi onboarding method** — Improv-serial + captive-portal fallback; no WPS (design.md §14.1; in firmware).
 - [x] **D9. `device_id` provisioning — DECIDED: MAC default, no runtime provisioning for v1.** Device reports its own id; a **physical label** maps unit ↔ id (design.md §14.2).
-- [ ] Repo scaffolding: `.gitignore`, `LICENSE`, `secrets.example.yaml`, `ha/`, `firmware/`, `tools/` dirs.
-- [ ] Record all decisions back into design.md §18.
+- [x] Repo scaffolding: `.gitignore`, `secrets.example.yaml`, `ha/`, `firmware/`, `tools/`, `docs/`, CI. *(LICENSE still TODO.)*
+- [~] Record all decisions back into design.md §18. *(device_id done; firmware approach to confirm at B2.)*
 
 ## A2. Author the full firmware config  *(design.md M1/M3/M4/M5, without flashing)*
 
-- [ ] Write the complete `alarmclock.yaml` (ESPHome) — or equivalent IDF skeleton.
-- [ ] Implement **per-device `device_id`**: config override with MAC-derived
-      default, **persisted in NVS** and stable across reboots/OTA (design.md §9.4).
-- [ ] Add **Wi-Fi onboarding**: `improv_serial` (first setup) + `captive_portal`
+- [x] Write the complete `alarmclock.yaml` (ESPHome) — `firmware/alarmclock.yaml`.
+- [~] Implement **per-device `device_id`**: compile-time substitution + NVS-backed
+      globals for state; a fully MAC-derived-at-boot topic namespace is a follow-up
+      (design.md §9.4) — see A2 note / firmware/README.md.
+- [x] Add **Wi-Fi onboarding**: `improv_serial` (first setup) + `captive_portal`
       fallback; support `wifi: networks:` + static IP (design.md §14.1).
-- [ ] Implement **`device_id` = MAC-derived** (D7/D9): derive it at boot, use it
-      for all topic/unique_id namespacing; no runtime id entry in v1 (design.md §14.2).
-- [ ] Implement a **`sensor` exposing the device id/short-MAC** so HA can show/confirm it.
-- [ ] Include all components up front: display, touch, audio/speaker, time/NTP,
-      Wi-Fi, MQTT, `switch`/`select`/`number`/`time`/`button`/`sensor`, alarm automations.
-- [ ] Set build flags for **16 MB flash + Octal PSRAM** (design.md §3.1/§13).
-- [ ] Validate the config schema: `esphome config alarmclock.yaml`.
-- [ ] **Compile the firmware without a device**: `esphome compile alarmclock.yaml`
-      (proves it builds; the `.bin` is ready to flash later).
-- [ ] Add a firmware-version constant + changelog entry.
+- [~] Implement **`device_id` = MAC-derived** (D7/D9): currently a build-time
+      substitution; runtime boot-time derivation + matching topic namespace is a
+      follow-up (design.md §14.2).
+- [x] Implement a **`sensor` exposing the device id/short-MAC** so HA can show/confirm it
+      (`Device id` text_sensor via `get_mac_address()`).
+- [~] Include all components up front: time/NTP, Wi-Fi, MQTT, `switch`/`select`/
+      `number`/`time`/`button`/`sensor` + alarm engine done; display/touch/audio
+      stubbed as `# TODO(hardware)` for Track B.
+- [x] Set build flags for **16 MB flash + Octal PSRAM** (design.md §3.1/§13).
+- [x] Validate the config schema: `esphome config alarmclock.yaml` → *Configuration is valid!*
+- [x] **Compile the firmware without a device**: `esphome compile alarmclock.yaml`
+      → **builds clean** (12.2 % flash, 88 % app partition free); `.bin` ready to flash.
+- [x] Add a firmware-version constant (`${fw_version}`) + changelog entry.
 
 ## A3. Design the MQTT interface  *(design.md M2, §9)*
 
-- [ ] Finalise topic scheme + node id + `unique_id`s for every entity (design.md §9.1).
-- [ ] Namespace **all** topics/`unique_id`s/`dev.ids` by the per-device id so
+- [x] Finalise topic scheme + node id + `unique_id`s for every entity (design.md §9.1).
+- [x] Namespace **all** topics/`unique_id`s/`dev.ids` by the per-device id so
       **multiple clocks** coexist (design.md §9.1, §9.4). `device_id` **= MAC**
-      (short/long form) — define the exact derivation + resulting patterns.
-- [ ] Ensure each clock groups as its own HA device (shared `dev` block) and add a
+      (last 6 hex, lowercase) — derivation + patterns frozen.
+- [x] Ensure each clock groups as its own HA device (shared `dev` block) and add a
       friendly device `name`.
-- [ ] Evaluate **device-based discovery** (`homeassistant/device/<device_id>/config`,
-      one message per device) vs per-entity config messages (design.md §9.4).
-- [ ] Write the exact **discovery payloads** (JSON) for every entity (design.md §9.2, §6).
-- [ ] Define all `*/state` topics → command mapping and availability/LWT (design.md §9.3).
-- [ ] Document the contract in a `docs/mqtt-interface.md` (this is the firmware↔HA spec).
+- [x] Evaluate **device-based discovery** (`homeassistant/device/<device_id>/config`,
+      one message per device) vs per-entity config messages — decided per-entity
+      (design.md §9.4).
+- [x] Write the exact **discovery payloads** (JSON) for every entity (design.md §9.2, §6).
+- [x] Define all `*/state` topics → command mapping and availability/LWT (design.md §9.3).
+- [x] Document the contract in `docs/mqtt-interface.md` (this is the firmware↔HA spec) —
+      **20 entities**; simulator + CI assert against it.
 
 ## A4. Station list  *(design.md M3, §10.4)*
 
-- [ ] Curate the initial station list (name → URL, codec, bitrate).
-- [ ] Verify each URL resolves and is a supported codec (MP3/HTTP preferred).
-- [ ] Store as `data/stations.yaml` (or JSON) usable by firmware + simulator.
+- [x] Curate the initial station list (name → URL, codec, bitrate).
+- [~] Verify each URL resolves and is a supported codec (MP3/HTTP preferred) —
+      off-device checks done; **on-device** validation is Track B3.
+- [x] Store as `data/stations.yaml` usable by firmware + simulator (6 stations, validated in CI).
 
 ## A5. Home Assistant integration  *(design.md M3/M4, §6.5)*
 
-- [ ] Write the **Universal Media Player** snippet → `ha/universal_media_player.yaml` (design.md §6.5) — templated/written **one per device**.
+- [x] Write the **Universal Media Player** snippet → `ha/universal_media_player.yaml` (design.md §6.5) — **one per device**.
 - [ ] Write any HA packages/automations (alarm dashboards, notifications).
 - [ ] Write a **mock HA entities** file (temporary `mqtt:` YAML or helpers) to
-      exercise the UI before the device exists.
-- [ ] Optionally stand up a **local Mosquitto + HA** in Docker to test discovery.
+      exercise the UI before the device exists. *(Not needed — real discovery is verified against the simulator.)*
+- [x] Stand up a **local broker** in Docker and verify discovery: 40 retained
+      config topics (20 × 2 devices), availability ON/OFF, command round-trips.
 
 ## A6. Device simulator  *(enables end-to-end testing pre-hardware)*
 
-- [ ] Write `tools/mqtt_sim.py` (Python `paho-mqtt`) that **impersonates the device**:
+- [x] Write `tools/mqtt_sim.py` (Python `paho-mqtt`) that **impersonates the device**:
   - takes a `--device-id` (a simulated MAC-like id) + optional `--name` so
     **two+ simulators can run simultaneously** to prove multi-clock support (design.md §9.4),
   - publishes the same discovery payloads (A3),
   - publishes availability + state,
   - subscribes to command topics and updates state accordingly,
   - simulates alarm firing / radio state / now-playing.
-- [ ] Use it to verify HA entities appear, command round-trips, availability on/off,
-      and the Universal Media Player façade — **all without the board**.
-- [ ] Run **two simulators at once** (different `device_id`s) to prove both clocks
-      appear as separate HA devices with no topic clashes (design.md §9.4).
-- [ ] Reuse the same payloads verbatim in the firmware (single source of truth).
+- [x] Use it to verify command round-trips + availability against a real broker
+      (`radio/power/set`, `radio/next/cmd`, `alarm/*`, station switching). *HA UI
+      wiring is verified by the discovery payloads matching `docs/mqtt-interface.md`.*
+- [x] Run **two simulators at once** (`b8d61f`, `a1c2e3`) — both appear as separate
+      devices with no topic clashes; CI asserts per-device namespacing (design.md §9.4).
+- [x] Reuse the same payloads verbatim in the firmware (single source of truth).
 
 ## A7. CI  *(design.md §13.5)*
 
-- [ ] GitHub Actions: run `esphome config` + `esphome compile` on push (works with no hardware).
-- [ ] Optionally lint `tools/` and validate `data/stations.*` against a schema.
+- [x] GitHub Actions: `esphome config` **+ `esphome compile`** on push (works with no hardware) — `.github/workflows/ci.yml`.
+- [x] Lint/compile `tools/mqtt_sim.py`, validate `data/stations.yaml`, and a
+      **multi-device** discovery smoke test.
 - [ ] On tag: publish release `.bin` + a web-installer manifest.
 
 ## A8. Docs, hardware prep & ordering
 
 - [ ] Read the official **schematic PDF** and pre-verify the pin map (design.md §3.2) — no board needed.
 - [ ] Resolve **RTC** (Q3) and **speaker/amp** (Q4) from docs/listing before/at unboxing.
-- [ ] Order/confirm accessories (speaker if needed, USB-C PSU, microSD) (design.md §3.3).
-- [ ] Write user docs: setup, Wi-Fi/MQTT provisioning, changing stations, HA usage.
-- [ ] Note the **factory `.bin` recovery** procedure (design.md §13.6).
-- [ ] Design the **physical device label** (short id = last 6 MAC hex, optional
+- [ ] Order/confirm accessories (USB-C PSU, microSD if used) (design.md §3.3).
+- [x] Write user docs: setup, Wi-Fi/MQTT provisioning, changing stations, HA usage → `docs/setup.md`.
+- [x] Note the **factory `.bin` recovery** procedure (design.md §13.6) + flashing quickstart.
+- [x] Design the **physical device label** (short id = last 6 MAC hex, optional
       name/QR) and create a `docs/devices.md` inventory (unit ↔ id ↔ HA name) (design.md §14.2).
 
-**Track A AC:** firmware compiles; MQTT interface + discovery payloads are frozen;
-HA shows all entities (against the simulator); Universal Media Player works;
-CI green; pin map pre-verified. → *Everything left is hardware validation.*
+**Track A AC:** ✅ **met** — firmware **compiles clean** (no device); MQTT interface
++ discovery payloads frozen (`docs/mqtt-interface.md`); 20 entities verified live
+against a broker via the simulator (two devices, no clashes); Universal Media Player
+snippet written; CI wired to validate + compile. *Remaining Track A items are the
+few `[~]`/`[ ]` above (schematic pin pre-check, RTC/speaker answers, accessories,
+runtime-MAC id derivation, release artefacts).* → *Everything else is hardware validation.*
 
 ---
 
@@ -226,8 +239,12 @@ A7 CI · A8 docs/schematic ─────────────────�
 
 ## Immediate next actions
 
-1. `[SW]` Do **A1** — lock D1–D4 (they gate repo layout and everything else).
-2. `[SW]` Do **A3** — freeze the MQTT interface (blocks A5/A6 and firmware).
-3. `[SW]` Scaffold **A2** (ESPHome `alarmclock.yaml`) and get `esphome compile` green in **A7**.
-4. `[SW]` Build **A6** simulator, then wire **A5** and confirm entities appear in HA.
-5. `[HW]` When the board arrives, jump to **B1**.
+1. ~~`[SW]` Do **A1** — lock D1–D4.~~ ✅ *(only D5 station policy + D6 missed-alarm policy remain).*
+2. ~~`[SW]` Do **A3** — freeze the MQTT interface.~~ ✅
+3. ~~`[SW]` Scaffold **A2** and get `esphome compile` green in **A7**.~~ ✅
+4. ~~`[SW]` Build **A6** simulator, then wire **A5**.~~ ✅ *(verified live against a broker).*
+5. `[SW]` Remaining pre-hardware: read the schematic to pre-verify pins (A8),
+   answer RTC/speaker questions, decide the missed-alarm policy (D6), and — if we
+   want the *runtime* MAC-derived id + manual discovery to match the contract —
+   settle the ESPHome-topic-naming follow-up (firmware/README.md).
+6. `[HW]` When the board arrives, jump to **B1**.

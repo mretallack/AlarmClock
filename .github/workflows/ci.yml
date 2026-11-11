@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # ------------------------------------------------------------------ #
+  # Track A — cheap checks that need no hardware
+  # ------------------------------------------------------------------ #
+  python:
+    name: Python + data checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: pip install paho-mqtt pyyaml
+      - name: Byte-compile simulator
+        run: python3 -m py_compile tools/mqtt_sim.py
+      - name: Validate stations file
+        run: |
+          python3 - <<'PY'
+          import yaml, sys
+          d = yaml.safe_load(open("data/stations.yaml"))
+          st = d["stations"]
+          assert st, "no stations"
+          for s in st:
+              for k in ("id", "name", "url", "codec"):
+                  assert k in s, f"{s} missing {k}"
+          print(f"OK: {len(st)} stations")
+          PY
+      - name: Simulator smoke test (generate discovery)
+        run: |
+          python3 - <<'PY'
+          import importlib.util, types, sys
+          # stub paho so we can instantiate without a broker
+          sys.modules['paho'] = types.ModuleType('paho')
+          sys.modules['paho.mqtt'] = types.ModuleType('paho.mqtt')
+          c = sys.modules['paho.mqtt.client'] = types.ModuleType('paho.mqtt.client')
+          class C:
+              def __init__(self,*a,**k): pass
+              def username_pw_set(self,*a): pass
+              def will_set(self,*a,**k): pass
+              def connect(self,*a,**k): pass
+              def publish(self,*a,**k): pass
+              def subscribe(self,*a): pass
+          c.Client = C
+          spec = importlib.util.spec_from_file_location("m", "tools/mqtt_sim.py")
+          m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+          import argparse
+          def mk(did):
+              a = argparse.Namespace(device_id=did, name="Test", firmware="ci",
+                                     stations="data/stations.yaml", username=None,
+                                     password=None, host="localhost", port=1883)
+              return m.Sim(a)
+          # Two simulators must namespace all topics/ids by device id.
+          for did in ("b8d61f", "a1c2e3"):
+              sim = mk(did)
+              disc = sim.discovery()  # list of (component, object_id, payload)
+              assert len(disc) >= 15, len(disc)
+              assert sim.base == f"alarmclock/{did}"
+              for comp, obj, payload in disc:
+                  topic = f"homeassistant/{comp}/alarmclock_{did}/{obj}/config"
+                  assert sim.node in topic
+                  assert payload["uniq_id"].startswith(f"alarmclock_{did}_")
+              print(f"OK: {did} -> {len(disc)} discovery entities")
+          PY
+
+  # ------------------------------------------------------------------ #
+  # ESPHome config validation + build (no device needed)
+  # ------------------------------------------------------------------ #
+  esphome:
+    name: ESPHome config + compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ESPHome
+        run: pip install esphome
+      - name: Provide dummy secrets
+        run: cp secrets.example.yaml firmware/secrets.yaml
+      - name: Validate config
+        working-directory: firmware
+        run: esphome config alarmclock.yaml
+      # Full compile downloads the ESP-IDF toolchain (~1 GB) and takes a few
+      # minutes on a cold cache, but proves the firmware builds with no device.
+      - name: Compile
+        working-directory: firmware
+        run: esphome compile alarmclock.yaml

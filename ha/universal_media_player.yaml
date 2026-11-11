@@ -1,0 +1,66 @@
+# =============================================================================
+# Home Assistant — Universal Media Player façade (design.md §6.5)
+# =============================================================================
+# HA's built-in MQTT integration has NO media_player platform, so we wrap the
+# MQTT-discovered entities into a real `media_player` using the BUILT-IN
+# Universal Media Player integration (no custom component required).
+#
+# Include this from configuration.yaml:
+#     media_player: !include ha/universal_media_player.yaml
+# or copy the block into configuration.yaml / a package.
+#
+# MULTI-DEVICE: duplicate one entry per alarm clock, replacing "b8d61f" with
+# that device's id (the entity ids below are namespaced by device_id — see
+# docs/mqtt-interface.md §1). Optionally generate this file per device.
+# =============================================================================
+
+- platform: universal
+  name: "Alarm Clock b8d61f"
+  unique_id: alarmclock_b8d61f_media_player
+  device_class: speaker
+  children:
+    - switch.alarmclock_b8d61f_radio
+  commands:
+    turn_on:
+      service: switch.turn_on
+      target: { entity_id: switch.alarmclock_b8d61f_radio }
+    turn_off:
+      service: switch.turn_off
+      target: { entity_id: switch.alarmclock_b8d61f_radio }
+    volume_set:
+      service: number.set_value
+      target: { entity_id: number.alarmclock_b8d61f_volume }
+      data: { value: "{{ (volume_level * 100) | round(0) | int }}" }
+    volume_up:
+      service: number.set_value
+      target: { entity_id: number.alarmclock_b8d61f_volume }
+      data: { value: "{{ (state_attr('number.alarmclock_b8d61f_volume','value') | float(0) + 5) | int }}" }
+    volume_down:
+      service: number.set_value
+      target: { entity_id: number.alarmclock_b8d61f_volume }
+      data: { value: "{{ (state_attr('number.alarmclock_b8d61f_volume','value') | float(0) - 5) | int }}" }
+    media_play:
+      service: switch.turn_on
+      target: { entity_id: switch.alarmclock_b8d61f_radio }
+    media_pause:
+      service: switch.turn_off
+      target: { entity_id: switch.alarmclock_b8d61f_radio }
+    media_stop:
+      service: switch.turn_off
+      target: { entity_id: switch.alarmclock_b8d61f_radio }
+    media_next_track:
+      service: button.press
+      target: { entity_id: button.alarmclock_b8d61f_next_station }
+    media_previous_track:
+      service: button.press
+      target: { entity_id: button.alarmclock_b8d61f_prev_station }
+    select_source:
+      service: select.select_option
+      target: { entity_id: select.alarmclock_b8d61f_station }
+      data: { option: "{{ source }}" }
+  attributes:
+    state: "{{ 'playing' if is_state('switch.alarmclock_b8d61f_radio','on') else 'idle' }}"
+    source: "{{ states('select.alarmclock_b8d61f_station') }}"
+    source_list: "{{ state_attr('select.alarmclock_b8d61f_station','options') }}"
+    volume_level: "{{ (states('number.alarmclock_b8d61f_volume') | float(0) / 100) | round(2) }}"
+    media_title: "{{ states('sensor.alarmclock_b8d61f_now_playing') }}"

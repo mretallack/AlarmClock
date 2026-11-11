@@ -1,0 +1,26 @@
+# ESPHome / local build artifacts
+.esphome/
+*.bin
+*.elf
+*.map
+*.factory.bin
+
+# Secrets — NEVER commit
+secrets.yaml
+secrets.yaml.*
+!secrets.example.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+*.swp
+
+# Local MQTT/sim scratch
+*.log

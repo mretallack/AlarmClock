@@ -1,0 +1,49 @@
+# Internet radio station catalogue (design.md §10.4, task A4)
+#
+# Consumed by the firmware and tools/mqtt_sim.py. "Feed only radio stations":
+# HA's `select.station` is populated from this list.
+#
+# Preferences for reliability on the ESP32 (see design.md §10.2):
+#   - direct MP3 (or AAC) ICY/Icecast streams
+#   - plain HTTP where possible (HTTPS costs RAM/CPU on the S3)
+#   - avoid HLS/DASH (not supported by the ESP audio stack)
+#
+# NOTE: URLs are examples and MUST be verified/curated on-device in Phase B3.
+# Update freely; the list is data, not code.
+
+stations:
+  - id: somafm-groovesalad
+    name: Groove Salad
+    url: http://ice1.somafm.com/groovesalad-128-mp3
+    codec: mp3
+    bitrate: 128
+
+  - id: somafm-lush
+    name: Lush
+    url: http://ice1.somafm.com/lush-128-mp3
+    codec: mp3
+    bitrate: 128
+
+  - id: somafm-dronezone
+    name: Drone Zone
+    url: http://ice1.somafm.com/dronezone-128-mp3
+    codec: mp3
+    bitrate: 128
+
+  - id: radioparadise-mp3
+    name: Radio Paradise
+    url: http://stream.radioparadise.com/mp3-128
+    codec: mp3
+    bitrate: 128
+
+  - id: jazz24
+    name: Jazz24
+    url: http://live.wostreaming.net/direct/ppm-jazz24mp3-ibc1
+    codec: mp3
+    bitrate: 128
+
+  - id: classicfm
+    name: Classic FM
+    url: http://media-ice.musicradio.com/ClassicFMMP3
+    codec: mp3
+    bitrate: 128
