@@ -1050,7 +1050,7 @@ physical clock → its HA device → its MQTT topics:
 9. **Placement & case fit:** confirm the case cut-outs (speaker grille, USB-C,
    touch access) and where the clock sits bedside; only design a custom
    enclosure if the included case proves unsuitable.
-10. **Licence** for this repo (Apache-2.0 to match vendor code?).
+10. ~~**Licence** for this repo?~~ **DECIDED: MIT** (see `LICENSE`).
 
 ---
 

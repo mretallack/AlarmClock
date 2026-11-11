@@ -90,4 +90,4 @@ Track B section of [`tasks.md`](./tasks.md).
 
 ## License
 
-TBD (Apache-2.0 to match the Waveshare vendor code is a sensible default).
+[MIT](LICENSE) © 2026 Mark Retallack.

@@ -46,7 +46,7 @@ A7 CI, A8 docs
 - [x] **D7. `device_id` scheme — DECIDED: MAC-derived** (unique, invisible, stable); optional friendly slug is a future enhancement (design.md §9.1, §9.4).
 - [x] **D8. Wi-Fi onboarding method** — Improv-serial + captive-portal fallback; no WPS (design.md §14.1; in firmware).
 - [x] **D9. `device_id` provisioning — DECIDED: MAC default, no runtime provisioning for v1.** Device reports its own id; a **physical label** maps unit ↔ id (design.md §14.2).
-- [x] Repo scaffolding: `.gitignore`, `secrets.example.yaml`, `ha/`, `firmware/`, `tools/`, `docs/`, CI. *(LICENSE still TODO.)*
+- [x] Repo scaffolding: `.gitignore`, `LICENSE` (MIT), `secrets.example.yaml`, `ha/`, `firmware/`, `tools/`, `docs/`, CI.
 - [~] Record all decisions back into design.md §18. *(device_id done; firmware approach to confirm at B2.)*
 
 ## A2. Author the full firmware config  *(design.md M1/M3/M4/M5, without flashing)*
