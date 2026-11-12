@@ -257,11 +257,66 @@ interval:
             // TODO(hardware): ramp volume + start radio playback here
           }
 
+# --- Display: on-screen clock (design.md §12.1) -----------------------------
+# ST7789V2 240x240 over SPI. Renders HH:MM from sntp_time — the *same* clock
+# that drives the alarm engine — plus the date and an alarm status line.
+# Compiles without hardware; only the pixels are confirmed at bring-up (B1/B5).
+spi:
+  clk_pin: GPIO38
+  mosi_pin: GPIO39
+
+font:
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: 500
+    id: font_clock
+    size: 88
+    glyphs: "0123456789:-"
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: 400
+    id: font_info
+    size: 16
+    glyphs: "0123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz .,-+/"
+
+display:
+  - platform: st7789v
+    model: CUSTOM
+    height: 240
+    width: 240
+    offset_height: 0
+    offset_width: 0
+    cs_pin: GPIO21
+    dc_pin: GPIO45
+    reset_pin: GPIO40
+    backlight_pin: GPIO46
+    update_interval: 1s
+    lambda: |-
+      auto now = id(sntp_time).now();
+      it.fill(Color::BLACK);
+      if (!now.is_valid()) {
+        // NTP not synced yet — show placeholders, never a bogus time.
+        it.printf(120, 80, id(font_clock), Color::WHITE, TextAlign::CENTER, "--:--");
+        return;
+      }
+      it.strftime(120, 70, id(font_clock), Color::WHITE, TextAlign::CENTER, "%H:%M", now);
+      it.strftime(120, 170, id(font_info), Color(120, 160, 255), TextAlign::CENTER, "%a %d %b %Y", now);
+      // status line: shows the armed alarm time, or "Alarm off".
+      if (id(g_alarm_enabled)) {
+        it.printf(120, 200, id(font_info), Color(120, 255, 120), TextAlign::CENTER,
+                  "Alarm %02d:%02d", id(g_alarm_hour), id(g_alarm_minute));
+      } else {
+        it.printf(120, 200, id(font_info), Color(120, 120, 120), TextAlign::CENTER, "Alarm off");
+      }
+
 # =============================================================================
 # TODO(hardware): enable during bring-up (pins per design.md §3.2)
 # -----------------------------------------------------------------------------
+# display:  DONE — ST7789V2 wired above (spi: mosi 39, clk 38, cs 21, dc 45,
+#           rst 40, bl 46). Confirm rotation/offsets on real panel (B1).
 # i2c:      sda 42, scl 41
-# display:  st7789v (spi: mosi 39, clk 38, cs 21, dc 45, rst 40, bl 46)
 # touch:    cst816 (i2c, int 48, rst 47)
 # audio:    es8311 (i2s: mclk 8, bclk 9, lrclk 10, dout 12; pa_ctrl 7)
 # speaker:  i2s_audio -> es8311

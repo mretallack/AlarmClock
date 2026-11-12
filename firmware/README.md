@@ -7,9 +7,11 @@ ESPHome firmware for the alarm clock. See [`design.md`](../design.md) §7/§13 a
 
 - `alarmclock.yaml` — the ESPHome device configuration.
   - **Track A (now):** Wi-Fi/MQTT/time plumbing + alarm & radio entities + the
-    on-device alarm engine. Validates and compiles without hardware.
-  - **Track B (bring-up):** the display/touch/audio block at the bottom
-    (`# TODO(hardware)`), wired to the pins in `design.md` §3.2.
+    on-device alarm engine + the **on-screen clock** (ST7789V, design.md §12.1).
+    Validates and compiles without hardware.
+  - **Track B (bring-up):** the touch/audio block at the bottom
+    (`# TODO(hardware)`), wired to the pins in `design.md` §3.2, plus confirming
+    the panel's rotation/offsets.
 
 ## Build / flash
 
@@ -45,10 +47,10 @@ namespaced per device but **cosmetically different**.
 Track A **complete and verified without hardware**:
 
 - `esphome config` → *Configuration is valid!*
-- `esphome compile` → **builds clean**: 12.2 % flash used, 88 % of the app
+- `esphome compile` → **builds clean**: 13.1 % flash used, 87 % of the app
   partition free (ESP-IDF 5.5, esp32s3).
 
 Alarm + radio entity logic, the on-device alarm engine, Wi-Fi onboarding, the
-MQTT layer and the `Device id`/`Firmware` sensors are implemented. The
-display/touch/audio block is stubbed (`# TODO(hardware)`) and is wired up in
-Track B (B1/B2).
+MQTT layer, the `Device id`/`Firmware` sensors and the **on-screen clock**
+(ST7789V: time + date + alarm status) are implemented. The touch/audio block is
+stubbed (`# TODO(hardware)`) and is wired up in Track B (B1/B2/B5).

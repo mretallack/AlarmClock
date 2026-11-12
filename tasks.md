@@ -63,8 +63,9 @@ A7 CI, A8 docs
 - [x] Implement a **`sensor` exposing the device id/short-MAC** so HA can show/confirm it
       (`Device id` text_sensor via `get_mac_address()`).
 - [~] Include all components up front: time/NTP, Wi-Fi, MQTT, `switch`/`select`/
-      `number`/`time`/`button`/`sensor` + alarm engine done; display/touch/audio
-      stubbed as `# TODO(hardware)` for Track B.
+      `number`/`time`/`button`/`sensor` + alarm engine done; **on-screen clock
+      done** (ST7789V, design.md §12.1); touch/audio stubbed as
+      `# TODO(hardware)` for Track B.
 - [x] Set build flags for **16 MB flash + Octal PSRAM** (design.md §3.1/§13).
 - [x] Validate the config schema: `esphome config alarmclock.yaml` → *Configuration is valid!*
 - [x] **Compile the firmware without a device**: `esphome compile alarmclock.yaml`
@@ -185,6 +186,7 @@ runtime-MAC id derivation, release artefacts).* → *Everything else is hardware
 
 ## B5. Screen / UI validation  *(design.md M5)*
 
+- [ ] Confirm the **Track-A on-screen clock** (ST7789V) on the real panel — rotation, offsets, font size (design.md §12.1).
 - [ ] LVGL screens render correctly on the 240×240 panel; touch targets usable.
 - [ ] Idle/dim behaviour; ring pulse visible.
 

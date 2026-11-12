@@ -752,6 +752,35 @@ own HA device. This is achieved purely by namespacing on `device_id` (§9.1):
 - **Settings:** Wi-Fi status, MQTT status, brightness, reboot, firmware version.
 - Touch gestures: tap; maybe swipe between clock/radio/alarm.
 
+### 12.1 On-screen clock (time display)
+
+The board is a **clock first**, so showing the time on the 1.54″ panel is core
+functionality, not decoration. It is delivered in two stages:
+
+**Stage 1 — plain on-screen clock (Track A, no hardware).** A minimal
+ESPHome `display` renders the current time (from `sntp_time`) on the ST7789V
+panel. This is pure software and **compiles/validates without the board**
+(only the pixels are confirmed at bring-up).
+
+- **Component:** ESPHome [`display`](https://esphome.io/components/display/)
+  using the ST7789V driver (240×240, SPI).
+- **Pins:** MOSI 39, SCLK 38, CS 21, DC 45, RST 40, Backlight 46 (§3.2).
+- **Backlight:** driven high on boot (dimming = later).
+- **Time source:** the existing `sntp_time` component — the *same* clock that
+  drives the alarm engine, so screen and alarm can never disagree.
+- **Rendering:** a `lambda` formats `HH:MM` via `strftime`, drawn with a large
+  `.ttf` font; redraw every second. Small date line beneath.
+- **Failure mode:** if NTP has not synced, show placeholders (`--:--`) instead
+  of a bogus time.
+
+**Stage 2 — LVGL UI (Track B5).** The full `LVGL` UI above (clock face +
+radio / alarm / ringing / settings screens, touch) replaces the plain clock,
+reusing the same display + time plumbing. The plain clock is the fallback if
+LVGL bring-up slips.
+
+> Stage 1 lives in `firmware/alarmclock.yaml`; Stage 2 is tracked as milestone
+> **M5** and task **B5**.
+
 ---
 
 ## 13. Toolchain, build & flashing
@@ -1013,7 +1042,8 @@ physical clock → its HA device → its MQTT topics:
 1. **M0 — Bring-up:** flash vendor demo; confirm USB/Boot mode; verify display,
    touch, audio, amp. (Validate pin map.)
 2. **M1 — Dev environment:** ESPHome (or ESP-IDF) builds & flashes a "hello"
-   app with Wi-Fi, NTP, and a visible clock.
+   app with Wi-Fi, NTP, and a visible clock. *(Plain on-screen clock delivered
+   in Track A — design §12.1; flashed/confirmed here.)*
 3. **M2 — MQTT plumbing:** connect to broker; publish availability + discovery
    for one dummy `switch`; confirm entity appears in HA.
 4. **M3 — Radio:** pick station → stream → speaker; volume; now-playing sensor;
