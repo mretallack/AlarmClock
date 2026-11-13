@@ -54,11 +54,8 @@ improv_serial:                    # first-time Wi-Fi over USB serial (no app)
 wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
-  # Prefer a static IP for fast reconnects (design.md §14.1)
-  manual_ip:
-    static_ip: 192.168.0.50
-    gateway: 192.168.0.1
-    subnet: 255.255.255.0
+  # DHCP (dynamic IP) — no manual_ip block. Assign a reserved/static lease in
+  # the router if a stable address is wanted (design.md §14.1).
   ap:                             # fallback hotspot
     ssid: "AlarmClock-${device_id}"
     password: !secret wifi_ap_password

@@ -932,8 +932,14 @@ from the ESPHome Dashboard / web installer); keep the **captive portal** as the
 always-available fallback for re-provisioning. **Do not use WPS.**
 
 Additional Wi-Fi notes:
-- Support **multiple SSIDs** (`wifi: networks:`) and prefer a **static IP** —
-  ESPHome recommends a static IP as it greatly improves reconnect time.
+- Support **multiple SSIDs** (`wifi: networks:`).
+- Use **DHCP (dynamic IP)** by default — simplest, no per-unit address
+  management and works on any network out of the box. If a **stable address**
+  is wanted (or needed for a fixed MQTT/OTA endpoint), prefer a **DHCP
+  reservation in the router** over a device-side static IP, so the device stays
+  dynamic but always gets the same lease. A device-side static IP
+  (`wifi: manual_ip:`) is only worth it where reconnect speed matters and the
+  network is fixed; it is not the default.
 - Credentials persist in NVS.
 
 ### 14.2 Setting the `device_id` on the device
