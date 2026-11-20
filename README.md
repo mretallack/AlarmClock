@@ -89,6 +89,14 @@ to come: audio/radio playback, touch and on-device UI validation — see the
 Track B section of [`tasks.md`](./tasks.md). The wire format is the firmware's
 native ESPHome MQTT scheme ([`docs/mqtt-interface.md`](./docs/mqtt-interface.md)).
 
+## TODO
+
+- [ ] **Rotate the placeholder secrets** in `firmware/secrets.yaml`
+  (`ota_password` and the `api:` `api_key` are still default/example values).
+  Fine while the clock lives on a trusted LAN, but anyone who can reach the
+  device can OTA-reflash it. Generate real values (`openssl rand -base64 32`)
+  and re-flash over USB once to load them.
+
 ## License
 
 [MIT](LICENSE) © 2026 Mark Retallack.
