@@ -5,7 +5,7 @@ Map each physical alarm clock to its MQTT `device_id`, HA device and label
 
 | Label (on case) | `device_id` (last 6 MAC hex) | MAC | HA device name | Location | Notes |
 |-----------------|------------------------------|-----|----------------|----------|-------|
-| _(pending)_     | `b8d61f` (example)           | —   | Alarm Clock    | Bedroom  | first unit |
+| `48e620`        | `48e620`                     | _private_ | Alarm Clock 48e620 | Bedroom | first unit; factory fw backed up (`backups/`) |
 |                 |                              |     |                |          | |
 
 > The `device_id` is derived from the Wi-Fi MAC at boot; the physical label

@@ -15,7 +15,7 @@
 # =============================================================================
 
 substitutions:
-  device_id: "b8d61f"          # last 6 hex of the MAC (set per unit / from build)
+  device_id: "48e620"          # last 6 hex of the MAC (this unit; set per unit)
   device_name: "alarmclock-${device_id}"
   friendly_name: "Alarm Clock"
   fw_version: "0.1.0-dev"
