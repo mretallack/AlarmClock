@@ -54,6 +54,39 @@ esphome:
   name: "${device_name}"
   friendly_name: "${friendly_name}"
   comment: "HA-integrated Internet radio alarm clock"
+  # --- ES8311 cold-boot self-heal -------------------------------------------
+  # On a COLD power-up the ES8311 codec can fail to probe over I2C
+  # (es8311.audio_dac "is marked FAILED"): its setup() writes ~12 registers and
+  # mark_failed()s on the first failed write, with NO retry for the rest of the
+  # boot. The alarm then turns the radio on and stays SILENT -- the worst
+  # failure mode for an alarm clock. A software (warm) reboot always re-inits
+  # the codec, so: after all components have set up, if the codec is failed,
+  # reboot once (guarded against a reboot loop by a persisted counter).
+  #
+  # priority -100 == setup_priority::LATE: runs after the i2c bus (BUS=1000)
+  # and after es8311/touchscreen (DATA=600) have finished setup().
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          if (!id(es8311_dac).is_failed()) {
+            // Codec healthy (the warm-boot case). Reset the loop guard so a
+            // future cold boot still gets its retries.
+            if (id(g_boot_retries) != 0)
+              id(g_boot_retries) = 0;
+            return;
+          }
+          id(g_boot_retries) += 1;
+          if (id(g_boot_retries) <= 2) {
+            ESP_LOGE("main",
+                     "ES8311 failed to init (cold-boot race); warm reboot to "
+                     "recover audio (attempt %d/2)", id(g_boot_retries));
+            App.safe_reboot();
+          } else {
+            ESP_LOGE("main",
+                     "ES8311 STILL failed after %d warm reboots; staying up but "
+                     "audio is dead", id(g_boot_retries));
+          }
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -182,6 +215,11 @@ globals:
     type: int
     restore_value: false
     initial_value: "0"        # epoch seconds when a snoozed alarm should re-ring
+  - id: g_last_fired_target
+    type: int
+    restore_value: true
+    initial_value: "0"        # epoch of the last scheduled fire time (guards DST
+                              # fall-back + reboot double-fire; changes per alarm)
   - id: g_station_idx
     type: int
     restore_value: true
@@ -190,6 +228,11 @@ globals:
     type: bool
     restore_value: true
     initial_value: "false"
+  - id: g_boot_retries
+    type: int
+    restore_value: true
+    initial_value: "0"        # ES8311 cold-boot self-heal guard (see on_boot);
+                              # persists across the reboot so we never loop
 
 # --- Alarm entities --------------------------------------------------------
 switch:
@@ -232,6 +275,7 @@ datetime:
     type: time
     optimistic: true
     initial_value: "07:00:00"
+    restore_value: true
     on_value:
       - lambda: |-
           id(g_alarm_hour) = x.hour;
@@ -282,6 +326,15 @@ number:
     id: num_snooze
     optimistic: true
     min_value: 1
+    max_value: 60
+    step: 1
+    initial_value: 10
+    restore_value: true
+  - platform: template
+    name: "Alarm catch-up (min)"
+    id: num_catchup
+    optimistic: true
+    min_value: 0
     max_value: 60
     step: 1
     initial_value: 10
@@ -356,6 +409,15 @@ text_sensor:
 binary_sensor:
   - platform: status
     name: "MQTT"        # connectivity (also: ESPHome 'Status')
+  # Surfaces the silent-failure mode: a failed ES8311 means no audio path at all.
+  # The alarm would ring with the radio "on" but silent. This flag (and the
+  # self-heal above) make that state visible/automatic in HA.
+  - platform: template
+    name: "Audio ok"
+    id: bs_audio_ok
+    entity_category: diagnostic
+    lambda: |-
+      return !id(es8311_dac).is_failed();
 
 sensor:
   - platform: wifi_signal
@@ -383,10 +445,22 @@ interval:
               id(g_snooze_until) = 0;
               fire = true;
             }
-          } else if (id(g_alarm_enabled) && day_ok && id(g_alarm_state) == "idle"
-                     && now.hour == id(g_alarm_hour) && now.minute == id(g_alarm_minute)
-                     && now.second < 2) {
-            fire = true;
+          } else if (id(g_alarm_enabled) && day_ok && id(g_alarm_state) == "idle") {
+            // Seconds since local midnight + the epoch of local midnight today.
+            long now_sod = (long) now.hour * 3600 + (long) now.minute * 60
+                           + (long) now.second;
+            long day_start = (long) now.timestamp - now_sod;
+            long target = day_start + (long) id(g_alarm_hour) * 3600
+                          + (long) id(g_alarm_minute) * 60;
+            int catchup = (int) id(num_catchup).state * 60;
+            // Fire once we're at/after the target and still inside the catch-up
+            // window (so a brief power cut or a late NTP sync after boot doesn't
+            // miss the alarm), and only once per day (DST fall-back + reboot).
+            if (now.timestamp >= target && now.timestamp < target + catchup
+                && id(g_last_fired_target) != (int) target) {
+              id(g_last_fired_target) = (int) target;
+              fire = true;
+            }
           }
 
           if (fire) {
