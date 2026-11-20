@@ -7,43 +7,46 @@
 #   - direct MP3 (or AAC) ICY/Icecast streams
 #   - plain HTTP where possible (HTTPS costs RAM/CPU on the S3)
 #   - avoid HLS/DASH (not supported by the ESP audio stack)
+#   - must return `Content-Type: audio/mpeg` WITHOUT a User-Agent
+#     (ESPHome's AudioReader sends none; stations that 403 without a UA won't work)
 #
-# NOTE: URLs are examples and MUST be verified/curated on-device in Phase B3.
-# Update freely; the list is data, not code.
+# Verified 2026-11-20: all entries below return `audio/mpeg` with no User-Agent.
+# SomaFM was dropped (403 Forbidden without a UA); BBC legacy URLs now 302 to a
+# notice page; Jazz24 endpoint did not resolve.
 
 stations:
-  - id: somafm-groovesalad
-    name: Groove Salad
-    url: http://ice1.somafm.com/groovesalad-128-mp3
-    codec: mp3
-    bitrate: 128
-
-  - id: somafm-lush
-    name: Lush
-    url: http://ice1.somafm.com/lush-128-mp3
-    codec: mp3
-    bitrate: 128
-
-  - id: somafm-dronezone
-    name: Drone Zone
-    url: http://ice1.somafm.com/dronezone-128-mp3
-    codec: mp3
-    bitrate: 128
-
   - id: radioparadise-mp3
     name: Radio Paradise
     url: http://stream.radioparadise.com/mp3-128
     codec: mp3
     bitrate: 128
 
-  - id: jazz24
-    name: Jazz24
-    url: http://live.wostreaming.net/direct/ppm-jazz24mp3-ibc1
-    codec: mp3
-    bitrate: 128
-
   - id: classicfm
     name: Classic FM
     url: http://media-ice.musicradio.com/ClassicFMMP3
+    codec: mp3
+    bitrate: 128
+
+  - id: heart-london
+    name: Heart London
+    url: http://icecast.thisisdax.com/HeartLondonMP3
+    codec: mp3
+    bitrate: 128
+
+  - id: capital-fm
+    name: Capital FM
+    url: http://icecast.thisisdax.com/CapitalMP3
+    codec: mp3
+    bitrate: 128
+
+  - id: smooth-london
+    name: Smooth London
+    url: http://icecast.thisisdax.com/SmoothLondonMP3
+    codec: mp3
+    bitrate: 128
+
+  - id: lbc
+    name: LBC
+    url: http://icecast.thisisdax.com/LBCUKMP3
     codec: mp3
     bitrate: 128

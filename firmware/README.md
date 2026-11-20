@@ -9,9 +9,13 @@ ESPHome firmware for the alarm clock. See [`design.md`](../design.md) §7/§13 a
   - **Track A (now):** Wi-Fi/MQTT/time plumbing + alarm & radio entities + the
     on-device alarm engine + the **on-screen clock** (ST7789V, design.md §12.1).
     Validates and compiles without hardware.
-  - **Track B (bring-up):** the touch/audio block at the bottom
-    (`# TODO(hardware)`), wired to the pins in `design.md` §3.2, plus confirming
-    the panel's rotation/offsets.
+  - **Track B (bring-up):** the audio stack (ES8311 + I2S + `media_player`, pins
+    per `design.md` §3.2) is wired up and **plays internet radio on hardware**;
+    remaining items are the CST816T touch block and confirming the panel's
+    rotation/offsets.
+  - **Codecs:** a top-level `audio: codecs:` block is required. ESPHome only
+    compiles the codecs listed there (default: FLAC only), so **MP3 streams fail
+    with `ESP_ERR_NOT_SUPPORTED` unless `mp3` is listed**. See `design.md` §10.2.
 
 ## Build / flash
 
@@ -39,13 +43,16 @@ alternative — hand-rolled discovery via `mqtt.publish_json` to match the old
 
 ## Status
 
-Track A **complete and verified without hardware**:
+Track A **complete and verified without hardware**; Track B bring-up **in
+progress on the first unit** (`48e620`).
 
 - `esphome config` → *Configuration is valid!*
-- `esphome compile` → **builds clean**: 13.1 % flash used, 87 % of the app
-  partition free (ESP-IDF 5.5, esp32s3).
+- `esphome compile` → **builds clean**: 15.5 % flash used, 85 % of the app
+  partition free (ESP-IDF 5.5, esp32s3) — display + full audio stack.
 
 Alarm + radio entity logic, the on-device alarm engine, Wi-Fi onboarding, the
 MQTT layer, the `Device id`/`Firmware` sensors and the **on-screen clock**
-(ST7789V: time + date + alarm status) are implemented. The touch/audio block is
-stubbed (`# TODO(hardware)`) and is wired up in Track B (B1/B2/B5).
+(ST7789V: time + date + alarm status) are implemented. On hardware: Wi-Fi/MQTT
+up, discovery + command round-trips verified, **internet radio plays**
+(ES8311/I2S; `Radio` switch + `Station` select + `Volume`). Touch (CST816T) is
+the remaining stubbed block.

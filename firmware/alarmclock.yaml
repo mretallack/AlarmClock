@@ -20,6 +20,23 @@ substitutions:
   friendly_name: "Alarm Clock"
   fw_version: "0.1.0-dev"
 
+  # --- Stations (KEEP IN SYNC with data/stations.yaml) ---
+  # Embedded at build time; the select options + URL mapping below are generated
+  # from these. Must return Content-Type: audio/mpeg WITHOUT a User-Agent.
+  # (A future enhancement: build/generate this from the YAML file.)
+  st1_name: "Radio Paradise"
+  st1_url: "http://stream.radioparadise.com/mp3-128"
+  st2_name: "Classic FM"
+  st2_url: "http://media-ice.musicradio.com/ClassicFMMP3"
+  st3_name: "Heart London"
+  st3_url: "http://icecast.thisisdax.com/HeartLondonMP3"
+  st4_name: "Capital FM"
+  st4_url: "http://icecast.thisisdax.com/CapitalMP3"
+  st5_name: "Smooth London"
+  st5_url: "http://icecast.thisisdax.com/SmoothLondonMP3"
+  st6_name: "LBC"
+  st6_url: "http://icecast.thisisdax.com/LBCUKMP3"
+
 esphome:
   name: "${device_name}"
   friendly_name: "${friendly_name}"
@@ -129,6 +146,22 @@ switch:
       - lambda: id(g_alarm_enabled) = true;  id(g_alarm_state) = "idle";
     on_turn_off:
       - lambda: id(g_alarm_enabled) = false; id(g_alarm_state) = "disabled";
+  - platform: template
+    name: "Radio"
+    id: sw_radio
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_turn_on:
+      - media_player.turn_on: radio_player
+      - script.execute: play_station
+    on_turn_off:
+      - media_player.stop: radio_player
+  # Speaker amplifier enable (PA_CTRL). Internal; on while the device runs.
+  - platform: gpio
+    id: sw_pa
+    internal: true
+    pin: GPIO7
+    restore_mode: ALWAYS_ON
 
 datetime:
   - platform: template
@@ -152,6 +185,26 @@ select:
     restore_value: true
     on_value:
       - lambda: id(g_alarm_days) = x;
+  - platform: template
+    name: "Station"
+    id: sel_station
+    optimistic: true
+    restore_value: true
+    options:
+      - "${st1_name}"
+      - "${st2_name}"
+      - "${st3_name}"
+      - "${st4_name}"
+      - "${st5_name}"
+      - "${st6_name}"
+    initial_option: "${st1_name}"
+    on_value:
+      # Changing station while the radio is on re-tunes immediately.
+      - if:
+          condition:
+            switch.is_on: sw_radio
+          then:
+            - script.execute: play_station
 
 number:
   - platform: template
@@ -172,6 +225,10 @@ number:
     step: 1
     initial_value: 30
     restore_value: true
+    on_value:
+      - media_player.volume_set:
+          id: radio_player
+          volume: !lambda "return x / 100.0f;"
 
 button:
   - platform: template
@@ -186,13 +243,15 @@ button:
   - platform: template
     name: "Next station"
     on_press:
-      - lambda: |-
-          id(g_station_idx) = (id(g_station_idx) + 1) % 4;  // TODO: station count
+      - select.operation:
+          id: sel_station
+          operation: NEXT
   - platform: template
     name: "Previous station"
     on_press:
-      - lambda: |-
-          id(g_station_idx) = (id(g_station_idx) + 3) % 4;  // TODO: station count
+      - select.operation:
+          id: sel_station
+          operation: PREVIOUS
 
 text_sensor:
   - platform: template
@@ -205,7 +264,7 @@ text_sensor:
     id: ts_now_playing
     update_interval: 10s
     lambda: |-
-      return id(g_radio_on) ? std::string("Station ") + to_string(id(g_station_idx)) : std::string("");
+      return id(g_radio_on) ? id(sel_station).current_option().str() : std::string("");
   - platform: template
     name: "Firmware"
     entity_category: diagnostic
@@ -253,6 +312,96 @@ interval:
             ESP_LOGI("alarm", "ALARM RINGING");
             // TODO(hardware): ramp volume + start radio playback here
           }
+
+# --- Audio: ES8311 + speaker + internet-radio player (design.md §10) ---------
+# ESP-IDF only. I2S -> ES8311 DAC -> PA -> speaker. The media_player decodes
+# MP3/FLAC/OPUS/WAV streams; we drive it from the MQTT `Radio` switch / `Station`
+# select / `Volume` number. Pin map per design.md §3.2.
+i2c:
+  id: i2c_bus
+  sda: GPIO42
+  scl: GPIO41
+  scan: false
+
+# Enable the audio codecs we stream. ESPHome only compiles the codecs listed
+# here; without MP3 listed, internet-radio MP3 streams fail with
+# ESP_ERR_NOT_SUPPORTED (the reader can't detect the file type).
+audio:
+  codecs:
+    mp3:
+    flac:
+    wav:
+
+i2s_audio:
+  - id: i2s_out
+    i2s_lrclk_pin: GPIO10
+    i2s_bclk_pin: GPIO9
+    i2s_mclk_pin: GPIO8
+
+audio_dac:
+  - platform: es8311
+    id: es8311_dac
+    i2c_id: i2c_bus
+    bits_per_sample: 16bit
+    sample_rate: 48000
+
+speaker:
+  - platform: i2s_audio
+    id: spk_i2s
+    i2s_audio_id: i2s_out
+    i2s_dout_pin: GPIO12
+    dac_type: external
+    channel: mono
+    sample_rate: 48000
+    bits_per_sample: 16bit
+    audio_dac: es8311_dac
+  # Two pipelines (announcement + media) must feed unique speakers -> mix them.
+  - platform: mixer
+    id: spk_mixer
+    output_speaker: spk_i2s
+    source_speakers:
+      - id: spk_mix_ann
+      - id: spk_mix_media
+  - platform: resampler
+    id: spk_resample_media
+    output_speaker: spk_mix_media
+  - platform: resampler
+    id: spk_resample_ann
+    output_speaker: spk_mix_ann
+
+media_player:
+  - platform: speaker
+    id: radio_player
+    name: "Radio"
+    volume_initial: 30%
+    buffer_size: 500000
+    task_stack_in_psram: true
+    media_pipeline:
+      speaker: spk_resample_media
+      num_channels: 1
+    announcement_pipeline:
+      speaker: spk_resample_ann
+      num_channels: 1
+    on_turn_on:
+      - lambda: id(g_radio_on) = true;
+    on_turn_off:
+      - lambda: id(g_radio_on) = false;
+
+script:
+  # Re-tune to whatever `sel_station` currently is.
+  - id: play_station
+    then:
+      - media_player.play_media:
+          id: radio_player
+          media_url: !lambda |-
+            std::string s = id(sel_station).current_option();
+            if (s == "${st1_name}") return std::string("${st1_url}");
+            if (s == "${st2_name}") return std::string("${st2_url}");
+            if (s == "${st3_name}") return std::string("${st3_url}");
+            if (s == "${st4_name}") return std::string("${st4_url}");
+            if (s == "${st5_name}") return std::string("${st5_url}");
+            if (s == "${st6_name}") return std::string("${st6_url}");
+            return std::string("");
 
 # --- Display: on-screen clock (design.md §12.1) -----------------------------
 # ST7789V2 240x240 over SPI. Renders HH:MM from sntp_time — the *same* clock
@@ -309,12 +458,12 @@ display:
       }
 
 # =============================================================================
-# TODO(hardware): enable during bring-up (pins per design.md §3.2)
+# TODO(hardware): remaining bring-up items (pins per design.md §3.2)
 # -----------------------------------------------------------------------------
 # display:  DONE — ST7789V2 wired above (spi: mosi 39, clk 38, cs 21, dc 45,
 #           rst 40, bl 46). Confirm rotation/offsets on real panel (B1).
-# i2c:      sda 42, scl 41
-# touch:    cst816 (i2c, int 48, rst 47)
-# audio:    es8311 (i2s: mclk 8, bclk 9, lrclk 10, dout 12; pa_ctrl 7)
-# speaker:  i2s_audio -> es8311
+# audio:    DONE — es8311 (i2s: mclk 8, bclk 9, lrclk 10, dout 12) + PA_CTRL 7;
+#           speaker -> media_player. Verify playback + tune buffer on HW (B3).
+# i2c:      DONE (es8311 uses it); shared with touch below.
+# touch:    TODO — cst816 (i2c, int 48, rst 47).
 # =============================================================================

@@ -654,6 +654,17 @@ own HA device. This is achieved purely by namespacing on `device_id` (§9.1):
 
 - **MP3** (Icecast/Shoutcast) and **AAC** streams are the realistic targets;
   most stations also offer MP3.
+- ⚠️ **ESPHome codecs must be explicitly enabled.** ESPHome compiles only the
+  codecs listed under a top-level `audio: codecs:` block. By default only FLAC
+  is pulled in, so **every MP3 stream fails at runtime** with
+  `Media reader encountered an error: ESP_ERR_NOT_SUPPORTED` (the reader cannot
+  detect the file type). We declare `audio: { codecs: { mp3, flac, wav } }` in
+  `firmware/alarmclock.yaml`. (Verified 2026-11-20.)
+- ⚠️ **Streams must return a plain `Content-Type: audio/mpeg` and must not
+  require a User-Agent.** ESPHome's `AudioReader` sends no `User-Agent` and
+  infers the type from the `Content-Type` header (falling back to a URL suffix);
+  stations that `403` without a UA, redirect to a notice page, or serve
+  `application/octet-stream` will not play. Curate/verify per station.
 - **HTTPS/TLS streams**: an ESP32 can do TLS but it is costly in RAM/CPU and
   handshake time. **Prefer HTTP (or plain Icecast) endpoints** where legal; if
   only HTTPS is available the connection may be slow/fragile. Validate per

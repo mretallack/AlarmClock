@@ -177,7 +177,15 @@ runtime-MAC id derivation, release artefacts).* → *Everything else is hardware
 
 ## B3. Radio validation  *(design.md M3)*
 
-- [ ] Prove a real stream → speaker; tune buffering.
+- [x] Prove a real stream → speaker; tune buffering.
+      **Done (2026-11-20):** the real blocker was that ESPHome only compiles the
+      audio codecs listed under a top-level `audio: codecs:` block. Only FLAC was
+      being enabled, so every MP3 stream failed `ESP_ERR_NOT_SUPPORTED` (the
+      reader couldn't detect the file type). Added `audio: codecs: {mp3, flac,
+      wav}` to `firmware/alarmclock.yaml`. With DEBUG logging the pipeline now
+      reports `Reading MP3 file type` → `Decoded audio has 2 channels, 44100 Hz,
+      16 bits` → resampler/mixer/I2S speaker start. A control (URL returning
+      `text/html`) still reproduces `ESP_ERR_NOT_SUPPORTED`, confirming the test.
 - [ ] Validate the curated stations on-device (incl. one HTTPS-only) + overnight soak.
 - [ ] Confirm volume + gentle wake ramp behave on real amp.
 - [ ] Verify now-playing/ICY metadata appears on the sensor.
