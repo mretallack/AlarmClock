@@ -478,17 +478,28 @@ script:
     mode: restart
     then:
       - switch.turn_on: sw_radio            # powers the media player + starts the station
+      # Gentle wake ramp, relative to the HA-set volume (never jumps painfully
+      # loud, never sticks at a barely-audible level). 40% -> 70% -> target in 12s.
       - media_player.volume_set:
           id: radio_player
-          volume: 0.08                       # start quiet...
-      - delay: 10s
+          volume: !lambda |-
+            float t = id(num_volume).state / 100.0f;
+            if (t < 0.15f) t = 0.15f;
+            return t * 0.4f;
+      - delay: 6s
       - media_player.volume_set:
           id: radio_player
-          volume: 0.25
-      - delay: 10s
+          volume: !lambda |-
+            float t = id(num_volume).state / 100.0f;
+            if (t < 0.15f) t = 0.15f;
+            return t * 0.7f;
+      - delay: 6s
       - media_player.volume_set:
           id: radio_player
-          volume: !lambda "return id(num_volume).state / 100.0f;"
+          volume: !lambda |-
+            float t = id(num_volume).state / 100.0f;
+            if (t < 0.15f) t = 0.15f;
+            return t;
   # Publish the current alarm time to HA in ISO "HH:MM:SS" (see the datetime /
   # mqtt blocks for why we don't use ESPHome's JSON MQTT time entity).
   - id: publish_alarm_time
