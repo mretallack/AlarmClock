@@ -48,7 +48,7 @@ homeassistant/<component>/alarmclock-<device_id>/<object_id>/config   <json>
 - `<object_id>` is ESPHome's slugified entity name (see §3).
 - State values are ESPHome-formatted: `switch`→`ON`/`OFF`,
   `number`→float text (`"40.000000"`), `select`→the option text,
-  `time`→JSON `{"hour":H,"minute":M,"second":S}`.
+  `time`→**ISO** `"HH:MM:SS"` (see the note on `alarm_time` below).
 - `uniq_id` = `ESP<component><object_id>` (e.g. `ESPswitchalarm_enabled`).
 
 ---
@@ -58,7 +58,7 @@ homeassistant/<component>/alarmclock-<device_id>/<object_id>/config   <json>
 | component | object_id | HA name | command payload |
 |-----------|-----------|---------|-----------------|
 | switch | `alarm_enabled` | Alarm enabled | `ON` / `OFF` |
-| time | `alarm_time` | Alarm time | `{"hour":7,"minute":30,"second":0}` |
+| time | `alarm_time` | Alarm time | `HH:MM:SS` (ISO, e.g. `07:30:00`) ¹ |
 | select | `alarm_repeat` | Alarm repeat | `off`\|`once`\|`daily`\|`weekdays`\|`weekends`\|`custom` |
 | number | `snooze__min_` | Snooze (min) | `1`..`60` |
 | number | `volume` | Volume | `0`..`100` |
@@ -72,6 +72,15 @@ homeassistant/<component>/alarmclock-<device_id>/<object_id>/config   <json>
 | sensor | `device_id` | Device id | _(read-only)_ |
 | sensor | `wi-fi_signal` | Wi-Fi signal | _(read-only)_ |
 | binary_sensor | `mqtt` | MQTT | _(read-only)_ |
+
+> ¹ **`alarm_time` uses ISO `HH:MM:SS`, not ESPHome's native JSON.** ESPHome's
+> built-in MQTT `time` entity publishes/subscribes JSON (`{"hour","minute",
+> "second"}`), but HA's MQTT `time` platform speaks ISO (`value.isoformat()`).
+> The two are mutually incompatible, so HA→device sets were silently dropped
+> (`[E][json] Parse error`) and device→HA state was unreadable. This entity is
+> therefore **hand-rolled in firmware**: the ESPHome `datetime` is `internal`
+> and we publish a matching ISO-format discovery + `HH:MM:SS` state, accepting
+> `HH:MM:SS` commands (and JSON defensively). See `firmware/alarmclock.yaml`.
 
 > **Planned (Track B3, once audio is wired):** `switch radio`, `select station`,
 > `button reboot` — same scheme (`alarmclock-<id>/switch/radio/command`, …).
@@ -153,7 +162,7 @@ Availability on entities: `"avty_t": "alarmclock-<device_id>/status"`.
 | Command topic | Payload | Effect |
 |---------------|---------|--------|
 | `…/switch/alarm_enabled/command` | `ON`/`OFF` | Enable/disable alarm → `alarm_state` `idle`/`disabled` |
-| `…/time/alarm_time/command` | `{"hour":7,"minute":30,"second":0}` | Set alarm time; echoed on `…/state` |
+| `…/time/alarm_time/command` | `HH:MM:SS` (ISO) ¹ | Set alarm time; echoed on `…/state` |
 | `…/select/alarm_repeat/command` | option text | Set repeat |
 | `…/number/snooze__min_/command` | `1`..`60` | Snooze duration |
 | `…/number/volume/command` | `0`..`100` | Volume |

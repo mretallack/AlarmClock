@@ -169,6 +169,11 @@ runtime-MAC id derivation, release artefacts).* → *Everything else is hardware
 - [~] Bring up Wi-Fi + NTP + on-screen clock on real hardware — Wi-Fi connected
       (`10.0.0.97`); on-screen clock to confirm visually.
 - [ ] Confirm OTA works; PSRAM reported by esptool (8 MB); confirm in firmware.
+- [x] **MQTT reconnect timing.** ESPHome's MQTT client does its first DNS lookup
+      *before* Wi-Fi/DNS is ready → `ERR_VAL` (`-6`) → a fixed ~25 s stall (20 s
+      timeout + 5 s retry) every boot. Fixed by pointing `mqtt_broker` at the
+      broker's **LAN IP** (`10.0.0.10`) — an IP literal needs no DNS, so MQTT
+      now connects immediately after Wi-Fi. (A hostname still works, just slower.)
 - [~] Reconcile any config that assumed hardware (pins, timing) — display pins correct; feed back into A2.
 - [x] Provision a real **`device_id`** = `48e620`; device reports it on `sensor/device_id`
       and publishes discovery (verified on the broker).
@@ -195,6 +200,11 @@ runtime-MAC id derivation, release artefacts).* → *Everything else is hardware
 - [ ] Verify on-device scheduling, NVS persistence across reboot, DST transition.
 - [ ] **Critical:** alarm fires with HA and broker powered off.
 - [ ] Snooze/dismiss/enable-from-HA on real device.
+- [x] **Set alarm time from HA over MQTT.** ESPHome's built-in MQTT `time`
+      entity uses JSON, HA's `time` platform uses ISO `HH:MM:SS` — incompatible,
+      so HA sets were dropped. Fixed with a hand-rolled ISO-format time entity
+      (ESPHome `datetime` made `internal`); verified on hardware: HA-style
+      `HH:MM:SS` command updates the device and echoes back. (docs/mqtt-interface.md §3.)
 - [ ] Confirm RTC behaviour across power loss (Q3).
 
 ## B5. Screen / UI validation  *(design.md M5)*

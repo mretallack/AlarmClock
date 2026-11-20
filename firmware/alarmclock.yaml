@@ -36,6 +36,19 @@ substitutions:
   st5_url: "http://icecast.thisisdax.com/SmoothLondonMP3"
   st6_name: "LBC"
   st6_url: "http://icecast.thisisdax.com/LBCUKMP3"
+  # --- Dorset (verified 2026-11-20: Content-Type audio/mpeg, no User-Agent) ---
+  st7_name: "Heart Dorset"
+  st7_url: "http://icecast.thisisdax.com/HeartDorsetMP3"
+  st8_name: "Capital South Coast"
+  st8_url: "http://icecast.thisisdax.com/CapitalSouthCoastMP3"
+  st9_name: "Smooth South Coast"
+  st9_url: "http://icecast.thisisdax.com/SmoothHampshireMP3"
+  st10_name: "Dorset Coast Radio"
+  st10_url: "http://uksoutha.streaming.broadcast.radio:24930/DorsetCoastRadio"
+  st11_name: "Hot Radio"
+  st11_url: "http://stream1.hippynet.co.uk:8095/dorset"
+  st12_name: "Forest FM"
+  st12_url: "http://radio.canstream.co.uk:8146/live.mp3"
 
 esphome:
   name: "${device_name}"
@@ -97,6 +110,45 @@ mqtt:
   will_message:
     topic: "${device_name}/status"
     payload: offline
+  # --- Alarm time as a proper HA time entity (ISO format) -------------------
+  # ESPHome's built-in MQTT time entity uses JSON, which HA's MQTT `time`
+  # platform doesn't speak, so we publish the discovery ourselves using HA's
+  # default ISO "HH:MM:SS" payloads in both directions.
+  on_connect:
+    # NB: ESPHome fires on_connect from the MQTT event task *before* is_connected()
+    # flips true in loop(); publishing here immediately is silently dropped. A
+    # short delay lets the connection settle first.
+    - delay: 2s
+    - mqtt.publish:
+        topic: homeassistant/time/${device_name}/alarm_time/config
+        retain: true
+        payload: !lambda |-
+          std::string mac = esphome::get_mac_address();
+          std::string node = "${device_name}";
+          std::string dev = "\"dev\":{\"ids\":\"" + mac + "\",\"name\":\"Alarm Clock\"}";
+          return std::string("{\"name\":\"Alarm time\",\"stat_t\":\"" + node +
+                             "/time/alarm_time/state\",\"cmd_t\":\"" + node +
+                             "/time/alarm_time/command\",\"avty_t\":\"" + node +
+                             "/status\",\"uniq_id\":\"ESPtimealarm_time\"," + dev + "}");
+    - script.execute: publish_alarm_time
+  on_message:
+    - topic: ${device_name}/time/alarm_time/command
+      then:
+        # Accept HA's ISO "HH:MM:SS" (and tolerate a JSON object defensively).
+        - lambda: |-
+            std::string p = x;
+            int h = -1, m = 0, s = 0;
+            if (!p.empty() && p[0] == '{') {
+              // {"hour":15,"minute":46,"second":0}
+              h = atoi(strstr(p.c_str(), "\"hour\"") ? strstr(p.c_str(), "\"hour\"") + 7 : "-1");
+              m = atoi(strstr(p.c_str(), "\"minute\"") ? strstr(p.c_str(), "\"minute\"") + 9 : "0");
+              s = atoi(strstr(p.c_str(), "\"second\"") ? strstr(p.c_str(), "\"second\"") + 9 : "0");
+            } else {
+              sscanf(p.c_str(), "%d:%d:%d", &h, &m, &s);
+            }
+            if (h >= 0 && h <= 23 && m >= 0 && m <= 59 && s >= 0 && s <= 59) {
+              id(dt_alarm_time).make_call().set_time((uint8_t) h, (uint8_t) m, (uint8_t) s).perform();
+            }
 
 # --- Time ------------------------------------------------------------------
 time:
@@ -164,9 +216,15 @@ switch:
     restore_mode: ALWAYS_ON
 
 datetime:
+  # NB: kept internal because HA's MQTT `time` entity speaks ISO "HH:MM:SS",
+  # whereas ESPHome's own MQTT time component speaks JSON ({"hour","minute",
+  # "second"}) — the two are incompatible, so HA->device sets were silently
+  # dropped (JSON parse error) and device->HA state was unreadable. We publish
+  # our own ISO-format MQTT time entity instead (see the `mqtt:` block below).
   - platform: template
     name: "Alarm time"
     id: dt_alarm_time
+    internal: true
     type: time
     optimistic: true
     initial_value: "07:00:00"
@@ -174,6 +232,8 @@ datetime:
       - lambda: |-
           id(g_alarm_hour) = x.hour;
           id(g_alarm_minute) = x.minute;
+      # Report the new value to HA (ISO "HH:MM:SS").
+      - script.execute: publish_alarm_time
 
 select:
   - platform: template
@@ -197,6 +257,12 @@ select:
       - "${st4_name}"
       - "${st5_name}"
       - "${st6_name}"
+      - "${st7_name}"
+      - "${st8_name}"
+      - "${st9_name}"
+      - "${st10_name}"
+      - "${st11_name}"
+      - "${st12_name}"
     initial_option: "${st1_name}"
     on_value:
       # Changing station while the radio is on re-tunes immediately.
@@ -388,6 +454,18 @@ media_player:
       - lambda: id(g_radio_on) = false;
 
 script:
+  # Publish the current alarm time to HA in ISO "HH:MM:SS" (see the datetime /
+  # mqtt blocks for why we don't use ESPHome's JSON MQTT time entity).
+  - id: publish_alarm_time
+    then:
+      - mqtt.publish:
+          topic: ${device_name}/time/alarm_time/state
+          retain: true
+          payload: !lambda |-
+            auto *t = id(dt_alarm_time);
+            char buf[9];
+            snprintf(buf, sizeof(buf), "%02d:%02d:%02d", (int) t->hour, (int) t->minute, (int) t->second);
+            return std::string(buf);
   # Re-tune to whatever `sel_station` currently is.
   - id: play_station
     then:
@@ -401,6 +479,12 @@ script:
             if (s == "${st4_name}") return std::string("${st4_url}");
             if (s == "${st5_name}") return std::string("${st5_url}");
             if (s == "${st6_name}") return std::string("${st6_url}");
+            if (s == "${st7_name}") return std::string("${st7_url}");
+            if (s == "${st8_name}") return std::string("${st8_url}");
+            if (s == "${st9_name}") return std::string("${st9_url}");
+            if (s == "${st10_name}") return std::string("${st10_url}");
+            if (s == "${st11_name}") return std::string("${st11_url}");
+            if (s == "${st12_name}") return std::string("${st12_url}");
             return std::string("");
 
 # --- Display: on-screen clock (design.md §12.1) -----------------------------
