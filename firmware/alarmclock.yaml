@@ -178,6 +178,10 @@ globals:
     type: std::string
     restore_value: false
     initial_value: '"idle"'   # idle|ringing|snoozed|disabled
+  - id: g_snooze_until
+    type: int
+    restore_value: false
+    initial_value: "0"        # epoch seconds when a snoozed alarm should re-ring
   - id: g_station_idx
     type: int
     restore_value: true
@@ -300,12 +304,18 @@ button:
   - platform: template
     name: "Snooze"
     on_press:
-      - lambda: id(g_alarm_state) = "snoozed";
+      - switch.turn_off: sw_radio
+      - lambda: |-
+          id(g_alarm_state) = "snoozed";
+          id(g_snooze_until) =
+              (int) id(sntp_time).now().timestamp + (int) id(num_snooze).state * 60;
   - platform: template
     name: "Dismiss"
     on_press:
+      - switch.turn_off: sw_radio
       - lambda: |-
           id(g_alarm_state) = id(g_alarm_enabled) ? "idle" : "disabled";
+          id(g_snooze_until) = 0;
   - platform: template
     name: "Next station"
     on_press:
@@ -363,20 +373,29 @@ interval:
       - lambda: |-
           if (!id(sntp_time).now().is_valid()) return;
           auto now = id(sntp_time).now();
-          // day matching
-          bool day_ok = true;
           auto d = id(g_alarm_days);
+          bool day_ok = true;
           if (d == "off") day_ok = false;
           else if (d == "weekdays") day_ok = (now.day_of_week >= 2 && now.day_of_week <= 6);
           else if (d == "weekends") day_ok = (now.day_of_week == 1 || now.day_of_week == 7);
-          // fire
-          if (id(g_alarm_enabled) && day_ok
-              && id(g_alarm_state) == "idle"
-              && now.hour == id(g_alarm_hour) && now.minute == id(g_alarm_minute)
-              && now.second < 2) {
+
+          bool fire = false;
+          if (id(g_alarm_state) == "snoozed") {
+            // re-ring once the snooze window has elapsed
+            if (id(g_snooze_until) > 0 && (int) now.timestamp >= id(g_snooze_until)) {
+              id(g_snooze_until) = 0;
+              fire = true;
+            }
+          } else if (id(g_alarm_enabled) && day_ok && id(g_alarm_state) == "idle"
+                     && now.hour == id(g_alarm_hour) && now.minute == id(g_alarm_minute)
+                     && now.second < 2) {
+            fire = true;
+          }
+
+          if (fire) {
             id(g_alarm_state) = "ringing";
             ESP_LOGI("alarm", "ALARM RINGING");
-            // TODO(hardware): ramp volume + start radio playback here
+            id(ring_alarm)->execute();   // start radio + gentle volume ramp
           }
 
 # --- Audio: ES8311 + speaker + internet-radio player (design.md §10) ---------
@@ -454,6 +473,22 @@ media_player:
       - lambda: id(g_radio_on) = false;
 
 script:
+  # Wake-up: turn on the radio and ramp the volume up gently to the HA-set level.
+  - id: ring_alarm
+    mode: restart
+    then:
+      - switch.turn_on: sw_radio            # powers the media player + starts the station
+      - media_player.volume_set:
+          id: radio_player
+          volume: 0.08                       # start quiet...
+      - delay: 10s
+      - media_player.volume_set:
+          id: radio_player
+          volume: 0.25
+      - delay: 10s
+      - media_player.volume_set:
+          id: radio_player
+          volume: !lambda "return id(num_volume).state / 100.0f;"
   # Publish the current alarm time to HA in ISO "HH:MM:SS" (see the datetime /
   # mqtt blocks for why we don't use ESPHome's JSON MQTT time entity).
   - id: publish_alarm_time
