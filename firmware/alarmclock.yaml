@@ -312,10 +312,7 @@ button:
   - platform: template
     name: "Dismiss"
     on_press:
-      - switch.turn_off: sw_radio
-      - lambda: |-
-          id(g_alarm_state) = id(g_alarm_enabled) ? "idle" : "disabled";
-          id(g_snooze_until) = 0;
+      - script.execute: dismiss_alarm
   - platform: template
     name: "Next station"
     on_press:
@@ -472,7 +469,44 @@ media_player:
     on_turn_off:
       - lambda: id(g_radio_on) = false;
 
+# --- Touch: CST816T (i2c, int 48, rst 47) -----------------------------------
+# Tap anywhere to cancel a ringing alarm (and stop the radio). This makes
+# alarm cancellation independent of Home Assistant.
+#
+# NOTE: declared *after* the audio stack on purpose. At equal setup priority
+# ESPHome initialises components in registration order, so putting the
+# touchscreen last ensures the ES8311 codec is probed on a quiet I2C bus.
+# (The CST816T resets and can hold SCL during its own bring-up.)
+touchscreen:
+  - platform: cst816
+    id: touch_panel
+    i2c_id: i2c_bus
+    interrupt_pin: GPIO48
+    reset_pin: GPIO47
+    # address: 0x15  # (default)
+    on_touch:
+      - if:
+          condition:
+            - lambda: 'return id(g_alarm_state) == "ringing" || id(g_alarm_state) == "snoozed";'
+          then:
+            - script.execute: dismiss_alarm
+          else:
+            - if:
+                condition:
+                  switch.is_on: sw_radio
+                then:
+                  - switch.turn_off: sw_radio
+
 script:
+  # Cancel the alarm: stop playback and clear the ringing/snooze state (shared by
+  # the HA Dismiss button and the on-device touchscreen tap).
+  - id: dismiss_alarm
+    mode: restart
+    then:
+      - switch.turn_off: sw_radio
+      - lambda: |-
+          id(g_alarm_state) = id(g_alarm_enabled) ? "idle" : "disabled";
+          id(g_snooze_until) = 0;
   # Wake-up: turn on the radio and ramp the volume up gently to the HA-set level.
   - id: ring_alarm
     mode: restart
