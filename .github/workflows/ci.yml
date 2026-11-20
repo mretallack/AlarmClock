@@ -57,16 +57,20 @@ jobs:
                                      stations="data/stations.yaml", username=None,
                                      password=None, host="localhost", port=1883)
               return m.Sim(a)
-          # Two simulators must namespace all topics/ids by device id.
+          # Two simulators must namespace all topics/ids by device id,
+          # using ESPHome's native scheme (docs/mqtt-interface.md).
           for did in ("b8d61f", "a1c2e3"):
               sim = mk(did)
               disc = sim.discovery()  # list of (component, object_id, payload)
               assert len(disc) >= 15, len(disc)
-              assert sim.base == f"alarmclock/{did}"
+              assert sim.node == f"alarmclock-{did}"
               for comp, obj, payload in disc:
-                  topic = f"homeassistant/{comp}/alarmclock_{did}/{obj}/config"
+                  topic = f"homeassistant/{comp}/{sim.node}/{obj}/config"
                   assert sim.node in topic
-                  assert payload["uniq_id"].startswith(f"alarmclock_{did}_")
+                  assert payload["uniq_id"] == f"ESP{comp}{obj}"
+                  assert payload["avty_t"] == f"alarmclock-{did}/status"
+                  if comp != "button":
+                      assert payload["stat_t"] == f"alarmclock-{did}/{comp}/{obj}/state"
               print(f"OK: {did} -> {len(disc)} discovery entities")
           PY
 

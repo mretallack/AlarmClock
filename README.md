@@ -82,11 +82,12 @@ tools/       mqtt_sim.py — device simulator (test the whole HA side without ha
 
 ## Status
 
-🟢 **In progress — Track A (no-hardware work) complete.** The ESPHome firmware
-validates and **compiles clean**, the full HA integration (20 MQTT-discovered
-entities) is verified against a device **simulator**, and CI is green. Remaining
-work needs the physical board (flash, calibrate, on-device validation) — see the
-Track B section of [`tasks.md`](./tasks.md).
+🟢 **In progress — first hardware unit up.** The board (device_id `48e620`) is
+flashed, on Wi-Fi (`10.0.0.97`) and publishing MQTT discovery to the broker
+(alarm + radio-control entities; factory firmware archived in `backups/`). Still
+to come: audio/radio playback, touch and on-device UI validation — see the
+Track B section of [`tasks.md`](./tasks.md). The wire format is the firmware's
+native ESPHome MQTT scheme ([`docs/mqtt-interface.md`](./docs/mqtt-interface.md)).
 
 ## License
 

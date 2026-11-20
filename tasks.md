@@ -85,8 +85,12 @@ A7 CI, A8 docs
       (design.md §9.4).
 - [x] Write the exact **discovery payloads** (JSON) for every entity (design.md §9.2, §6).
 - [x] Define all `*/state` topics → command mapping and availability/LWT (design.md §9.3).
-- [x] Document the contract in `docs/mqtt-interface.md` (this is the firmware↔HA spec) —
-      **20 entities**; simulator + CI assert against it.
+- [x] **RESOLVED (2026-11-20): accept ESPHome's native MQTT scheme** as the wire
+      format (option (a)); `docs/mqtt-interface.md`, the simulator and `ha/` all
+      reconciled to it. *(Firmware = 15 entities; simulator also emits the 3
+      planned radio ones.)*
+- [x] Document the contract in `docs/mqtt-interface.md` (this is the firmware↔HA spec);
+      simulator + CI assert against it.
 
 ## A4. Station list  *(design.md M3, §10.4)*
 
@@ -151,22 +155,23 @@ runtime-MAC id derivation, release artefacts).* → *Everything else is hardware
 ## B1. Unbox & bring-up  *(design.md M0, Phase 1)*
 
 - [ ] Unbox; photograph board + case; confirm case cut-outs (speaker grille, USB-C, touch).
-- [ ] **Confirm the pin map** against the board/schematic; correct design.md §3.2 if needed.
-- [ ] Power via USB-C; confirm `/dev/ttyACM*`; practise **BOOT** download mode.
-- [ ] Flash the **vendor factory firmware**; exercise display, touch, Wi-Fi, audio.
-- [ ] Confirm **audio out** (tones) and `PA_CTRL` (GPIO 7); confirm **display** (ST7789V2) + **touch** (CST816T).
-- [ ] Note MAC/hostname; archive the factory `.bin`.
+- [~] **Confirm the pin map** against the board/schematic; display (ST7789V2) proven on our build; audio/touch pins still to confirm.
+- [x] Power via USB-C; confirmed `/dev/ttyACM0` (USB-Serial/JTAG); auto download-mode works (no BOOT button needed).
+- [~] Flash the **vendor factory firmware**; exercised its presence via a full-chip dump (see B2/backup).
+- [ ] Confirm **audio out** (tones) and `PA_CTRL` (GPIO 7); confirm **touch** (CST816T).
+- [x] Note MAC/hostname; archive the factory `.bin` → `backups/factory-48e620.bin` (design device_id `48e620`).
 - [ ] Capture the vendor **MAC/QR sticker** on the board (before fitting the case);
       record it in `docs/devices.md` and apply our own underside label (design.md §14.2).
 
 ## B2. Flash our firmware & iterate  *(design.md M1)*
 
-- [ ] `esphome run alarmclock.yaml` over USB (first flash; Boot-mode trick if needed).
-- [ ] Bring up Wi-Fi + NTP + on-screen clock on real hardware.
-- [ ] Confirm OTA works; confirm PSRAM is detected.
-- [ ] Reconcile any config that assumed hardware (pins, timing) — feed back into A2.
-- [ ] Provision a real **`device_id`**/friendly name; confirm it persists across
-      reboot/OTA and that the clock appears as its own HA device (design.md §9.4).
+- [x] `esphome run alarmclock.yaml` over USB (flashed & verified; no Boot-mode trick needed).
+- [~] Bring up Wi-Fi + NTP + on-screen clock on real hardware — Wi-Fi connected
+      (`10.0.0.97`); on-screen clock to confirm visually.
+- [ ] Confirm OTA works; PSRAM reported by esptool (8 MB); confirm in firmware.
+- [~] Reconcile any config that assumed hardware (pins, timing) — display pins correct; feed back into A2.
+- [x] Provision a real **`device_id`** = `48e620`; device reports it on `sensor/device_id`
+      and publishes discovery (verified on the broker).
 - [ ] Test **Wi-Fi onboarding** end-to-end: Improv-serial first setup + captive
       portal fallback; confirm creds persist (design.md §14.1).
 
@@ -245,8 +250,9 @@ A7 CI · A8 docs/schematic ─────────────────�
 2. ~~`[SW]` Do **A3** — freeze the MQTT interface.~~ ✅
 3. ~~`[SW]` Scaffold **A2** and get `esphome compile` green in **A7**.~~ ✅
 4. ~~`[SW]` Build **A6** simulator, then wire **A5**.~~ ✅ *(verified live against a broker).*
-5. `[SW]` Remaining pre-hardware: read the schematic to pre-verify pins (A8),
-   answer RTC/speaker questions, decide the missed-alarm policy (D6), and — if we
-   want the *runtime* MAC-derived id + manual discovery to match the contract —
-   settle the ESPHome-topic-naming follow-up (firmware/README.md).
-6. `[HW]` When the board arrives, jump to **B1**.
+5. ~~`[HW]` Jump to **B1**.~~ ✅ *(board in hand: flashed, on Wi-Fi, in MQTT; device_id `48e620`).*
+6. ~~Settle the ESPHome-topic-naming follow-up.~~ ✅ *(decided: accept ESPHome native — `docs/mqtt-interface.md`).*
+7. **Next:** confirm the on-screen clock visually; wire the **audio/radio**
+   (B3); confirm touch (CST816T); wire the Universal Media Player once radio
+   entities exist. Remaining pre-hardware: RTC/speaker questions, missed-alarm
+   policy (D6), schematic pin check (A8).

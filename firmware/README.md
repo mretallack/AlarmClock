@@ -26,21 +26,16 @@ Copy `secrets.example.yaml` → `secrets.yaml` and fill it in first.
 
 ## `device_id` and topic naming
 
-The design (design.md §9.1) derives `device_id` from the **MAC at runtime**.
-ESPHome names the *node* at **compile time**, so `alarmclock.yaml` uses a
-`device_id` substitution for now (one build per unit) and ESPHome namespaces all
-of its MQTT topics by the node name (`alarmclock-<id>`), which keeps multiple
-clocks collision-free.
+`device_id` = **last 6 hex of the MAC**, set as a substitution per unit
+(this unit: `48e620`). ESPHome names the node `alarmclock-<device_id>` and
+namespaces **all** MQTT topics/`unique_id`s by it, so multiple clocks never
+collide; it also publishes its own device id on `sensor/device_id/state`.
 
-`docs/mqtt-interface.md` is the **canonical MQTT contract** implemented by the
-simulator (`tools/mqtt_sim.py`) and intended for any hand-written (ESP-IDF)
-implementation. ESPHome's auto-generated topics are functionally equivalent,
-namespaced per device but **cosmetically different**.
-
-> **Follow-up (design decision needed):** either (a) accept ESPHome's native MQTT
-> topic naming as the firmware's wire format, or (b) implement manual discovery
-> via `mqtt.publish_json` lambdas to match `docs/mqtt-interface.md` exactly.
-> Tracked in `tasks.md` (A2/A3).
+**Decided (2026-11-20): we use ESPHome's native MQTT scheme as the wire format**
+(option (a) in `tasks.md` A3). `docs/mqtt-interface.md` documents exactly what
+the device publishes, and `tools/mqtt_sim.py` emits the same scheme. (The
+alternative — hand-rolled discovery via `mqtt.publish_json` to match the old
+`alarmclock/<id>/...` draft — was dropped.)
 
 ## Status
 

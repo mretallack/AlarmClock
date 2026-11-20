@@ -2,12 +2,18 @@
 """
 Alarm-clock firmware SIMULATOR.
 
-Impersonates a real ESP32-S3-Touch-LCD-1.54 alarm clock over MQTT so the entire
-Home Assistant integration can be built and tested **before the hardware exists**
-(design.md §9, tasks.md A6).
+Impersonates a real ESP32-S3-Touch-LCD-1.54 alarm clock over MQTT so the Home
+Assistant integration can be built/tested without the board (design.md §9,
+tasks.md A6). It implements the SAME wire format the ESPHome firmware actually
+publishes (docs/mqtt-interface.md, option (a)):
 
-It implements the contract in docs/mqtt-interface.md: publishes MQTT discovery,
-availability (with LWT), and state; subscribes to command topics and reacts.
+    discovery : homeassistant/<component>/alarmclock-<id>/<object_id>/config
+    state     : alarmclock-<id>/<component>/<object_id>/state
+    command   : alarmclock-<id>/<component>/<object_id>/command
+    availability: alarmclock-<id>/status   (retained + LWT)
+
+It additionally emits the planned radio entities (switch radio / select station
+/ button reboot) so the HA side can be built ahead of the hardware audio work.
 
 Run two instances with different --device-id to prove multi-device support.
 
@@ -23,7 +29,6 @@ import datetime as dt
 import json
 import signal
 import sys
-import threading
 import time
 
 try:
@@ -58,8 +63,7 @@ def load_stations(path: str) -> list[dict]:
                 continue
             k, _, v = s.partition(":")
             v = v.strip().strip('"')
-            if v:
-                cur[k.strip()] = int(v) if v.isdigit() else v
+            cur[k.strip()] = v
         return stations
 
 
@@ -69,13 +73,15 @@ def load_stations(path: str) -> list[dict]:
 class Sim:
     def __init__(self, args):
         self.device_id = args.device_id.lower()
-        self.name = args.name or f"Alarm Clock {self.device_id}"
+        self.name = args.name or "Alarm Clock"
         self.fw = args.firmware
         self.stations = load_stations(args.stations)
         self.station_names = [s["name"] for s in self.stations]
-        self.base = f"alarmclock/{self.device_id}"
+        # ESPHome uses node name `alarmclock-<id>` and a 12-hex MAC as dev.ids.
+        self.node = f"alarmclock-{self.device_id}"
+        self.base = self.node
         self.avail = f"{self.base}/status"
-        self.node = f"alarmclock_{self.device_id}"
+        self.mac = f"000000{self.device_id}"   # 12 hex; last 6 = device_id
 
         self.state = {
             "alarm_enabled": "OFF",
@@ -83,7 +89,6 @@ class Sim:
             "alarm_days": "daily",
             "alarm_snooze_minutes": 10,
             "alarm_state": "disabled",
-            "alarm_next": "",
             "radio": "OFF",
             "station": self.station_names[0],
             "volume": 30,
@@ -93,7 +98,6 @@ class Sim:
         self.client = mqtt.Client(client_id=self.node)
         if args.username:
             self.client.username_pw_set(args.username, args.password)
-        # Last Will -> HA marks us offline if we vanish
         self.client.will_set(self.avail, "offline", retain=True)
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
@@ -103,119 +107,82 @@ class Sim:
     def pub(self, topic: str, payload, retain=True):
         self.client.publish(topic, str(payload), retain=retain)
 
+    def state_topic(self, comp: str, obj: str) -> str:
+        return f"{self.base}/{comp}/{obj}/state"
+
     def dev_block(self) -> dict:
         return {
-            "ids": f"alarmclock-{self.device_id}",
+            "ids": self.mac,
             "name": self.name,
-            "mf": "Custom",
+            "mf": "Simulator",
             "mdl": "ESP32-S3-Touch-LCD-1.54",
             "sw": self.fw,
+            "cns": [["mac", self.mac]],
         }
 
-    def discovery(self) -> list[tuple[str, str, dict]]:
-        d, nid = self.dev_block(), self.node
-        avail = {"avty_t": self.avail, "dev": d}
-        uid = lambda role: f"{self.node}_{role}"  # noqa: E731
-        t = lambda role: f"{self.base}/{role}"  # noqa: E731
-        out = [
-            ("switch", "alarm_enabled", {
-                "name": "Alarm enabled", "uniq_id": uid("alarm_enabled"),
-                "cmd_t": t("alarm/enabled/set"), "stat_t": t("alarm/enabled/state"),
-                "ic": "mdi:alarm", **avail}),
-            ("time", "alarm_time", {
-                "name": "Alarm time", "uniq_id": uid("alarm_time"),
-                "cmd_t": t("alarm/time/set"), "stat_t": t("alarm/time/state"),
-                "ic": "mdi:clock-outline", **avail}),
-            ("select", "alarm_days", {
-                "name": "Alarm repeat", "uniq_id": uid("alarm_days"),
-                "cmd_t": t("alarm/days/set"), "stat_t": t("alarm/days/state"),
-                "options": DAYS, "ic": "mdi:calendar-week", **avail}),
-            ("number", "alarm_snooze_minutes", {
-                "name": "Snooze (min)", "uniq_id": uid("alarm_snooze_minutes"),
-                "cmd_t": t("alarm/snooze_minutes/set"),
-                "stat_t": t("alarm/snooze_minutes/state"),
-                "min": 1, "max": 60, "step": 1, "unit_of_meas": "min",
-                "ic": "mdi:timer-snooze", **avail}),
-            ("button", "alarm_snooze", {
-                "name": "Snooze", "uniq_id": uid("alarm_snooze"),
-                "cmd_t": t("alarm/snooze/cmd"), "ic": "mdi:sleep", **avail}),
-            ("button", "alarm_dismiss", {
-                "name": "Dismiss", "uniq_id": uid("alarm_dismiss"),
-                "cmd_t": t("alarm/dismiss/cmd"), "ic": "mdi:alarm-off", **avail}),
-            ("sensor", "alarm_state", {
-                "name": "Alarm state", "uniq_id": uid("alarm_state"),
-                "stat_t": t("alarm/state"), "ic": "mdi:alarm-bell", **avail}),
-            ("sensor", "alarm_next", {
-                "name": "Next alarm", "uniq_id": uid("alarm_next"),
-                "stat_t": t("alarm/next"), "dev_cla": "timestamp",
-                "ic": "mdi:clock-check", **avail}),
-            ("switch", "radio", {
-                "name": "Radio", "uniq_id": uid("radio"),
-                "cmd_t": t("radio/power/set"), "stat_t": t("radio/power/state"),
-                "ic": "mdi:radio", **avail}),
-            ("select", "station", {
-                "name": "Station", "uniq_id": uid("station"),
-                "cmd_t": t("radio/station/set"), "stat_t": t("radio/station/state"),
-                "options": self.station_names, "ic": "mdi:radio-tower", **avail}),
-            ("number", "volume", {
-                "name": "Volume", "uniq_id": uid("volume"),
-                "cmd_t": t("radio/volume/set"), "stat_t": t("radio/volume/state"),
-                "min": 0, "max": 100, "step": 1, "unit_of_meas": "%",
-                "ic": "mdi:volume-high", **avail}),
-            ("button", "next_station", {
-                "name": "Next station", "uniq_id": uid("next_station"),
-                "cmd_t": t("radio/next/cmd"), "ic": "mdi:skip-next", **avail}),
-            ("button", "prev_station", {
-                "name": "Previous station", "uniq_id": uid("prev_station"),
-                "cmd_t": t("radio/prev/cmd"), "ic": "mdi:skip-previous", **avail}),
-            ("sensor", "now_playing", {
-                "name": "Now playing", "uniq_id": uid("now_playing"),
-                "stat_t": t("radio/now_playing"), "ic": "mdi:music-note", **avail}),
-            ("sensor", "ip", {
-                "name": "IP", "uniq_id": uid("ip"), "stat_t": t("device/ip"),
-                "ic": "mdi:ip", **avail}),
-            ("sensor", "rssi", {
-                "name": "Wi-Fi signal", "uniq_id": uid("rssi"),
-                "stat_t": t("device/rssi"), "unit_of_meas": "dBm",
-                "dev_cla": "signal_strength", "ent_cat": "diagnostic",
-                "ic": "mdi:wifi", **avail}),
-            ("sensor", "firmware", {
-                "name": "Firmware", "uniq_id": uid("firmware"),
-                "stat_t": t("device/firmware"), "ent_cat": "diagnostic",
-                "ic": "mdi:chip", **avail}),
-            ("sensor", "device_id", {
-                "name": "Device id", "uniq_id": uid("device_id"),
-                "stat_t": t("device/id"), "ent_cat": "diagnostic",
-                "ic": "mdi:identifier", **avail}),
-            ("binary_sensor", "mqtt", {
-                "name": "MQTT", "uniq_id": uid("mqtt"), "stat_t": t("device/mqtt"),
-                "dev_cla": "connectivity", "ent_cat": "diagnostic",
-                "ic": "mdi:server-network", **avail}),
-            ("button", "reboot", {
-                "name": "Reboot", "uniq_id": uid("reboot"),
-                "cmd_t": t("device/reboot/cmd"), "ent_cat": "config",
-                "ic": "mdi:restart", **avail}),
+    def entities(self) -> list[tuple[str, str, dict]]:
+        """(component, object_id, extra discovery keys) — mirrors the firmware."""
+        return [
+            ("switch", "alarm_enabled", {"name": "Alarm enabled"}),
+            ("time", "alarm_time", {"name": "Alarm time"}),
+            ("select", "alarm_repeat", {"name": "Alarm repeat", "ops": DAYS}),
+            ("number", "snooze__min_", {"name": "Snooze (min)", "min": 1, "max": 60, "step": 1}),
+            ("number", "volume", {"name": "Volume", "min": 0, "max": 100, "step": 1}),
+            ("button", "snooze", {"name": "Snooze"}),
+            ("button", "dismiss", {"name": "Dismiss"}),
+            ("button", "next_station", {"name": "Next station"}),
+            ("button", "previous_station", {"name": "Previous station"}),
+            ("sensor", "alarm_state", {"name": "Alarm state"}),
+            ("sensor", "now_playing", {"name": "Now playing"}),
+            ("sensor", "firmware", {"name": "Firmware", "ent_cat": "diagnostic"}),
+            ("sensor", "device_id", {"name": "Device id", "ent_cat": "diagnostic"}),
+            ("sensor", "wi-fi_signal", {"name": "Wi-Fi signal", "unit": "dBm",
+                                        "dev_cla": "signal_strength", "ent_cat": "diagnostic"}),
+            ("binary_sensor", "mqtt", {"name": "MQTT", "dev_cla": "connectivity",
+                                       "ent_cat": "diagnostic"}),
+            # --- planned (Track B3) — not yet in the firmware ---
+            ("switch", "radio", {"name": "Radio"}),
+            ("select", "station", {"name": "Station", "ops": self.station_names}),
+            ("button", "reboot", {"name": "Reboot", "ent_cat": "config"}),
         ]
+
+    def discovery(self) -> list[tuple[str, str, dict]]:
+        """Full discovery payloads: (component, object_id, payload)."""
+        dev = self.dev_block()
+        avail = {"avty_t": self.avail, "dev": dev}
+        out = []
+        for comp, obj, extra in self.entities():
+            payload = {"uniq_id": f"ESP{comp}{obj}", **avail}
+            if comp != "button":
+                payload["stat_t"] = self.state_topic(comp, obj)
+            if comp in ("switch", "time", "select", "number", "button"):
+                payload["cmd_t"] = f"{self.base}/{comp}/{obj}/command"
+            # spread extra keys, mapping our short aliases to discovery keys
+            for k, v in extra.items():
+                payload[{"ops": "ops", "unit": "unit_of_meas",
+                         "dev_cla": "dev_cla", "ent_cat": "ent_cat"}.get(k, k)] = v
+            out.append((comp, obj, payload))
         return out
 
     # -- publish helpers --------------------------------------------------- #
     def publish_all_state(self):
         s = self.state
-        self.pub(f"{self.base}/alarm/enabled/state", s["alarm_enabled"])
-        self.pub(f"{self.base}/alarm/time/state", s["alarm_time"])
-        self.pub(f"{self.base}/alarm/days/state", s["alarm_days"])
-        self.pub(f"{self.base}/alarm/snooze_minutes/state", s["alarm_snooze_minutes"])
-        self.pub(f"{self.base}/alarm/state", s["alarm_state"])
-        self.pub(f"{self.base}/alarm/next", s["alarm_next"])
-        self.pub(f"{self.base}/radio/power/state", s["radio"])
-        self.pub(f"{self.base}/radio/station/state", s["station"])
-        self.pub(f"{self.base}/radio/volume/state", s["volume"])
-        self.pub(f"{self.base}/radio/now_playing", s["now_playing"])
-        self.pub(f"{self.base}/device/ip", "192.168.0.50")
-        self.pub(f"{self.base}/device/rssi", -55)
-        self.pub(f"{self.base}/device/firmware", self.fw)
-        self.pub(f"{self.base}/device/id", self.device_id)
-        self.pub(f"{self.base}/device/mqtt", "online")
+        self.pub(self.state_topic("switch", "alarm_enabled"), s["alarm_enabled"])
+        h, m, sec = (int(x) for x in s["alarm_time"].split(":"))
+        self.pub(self.state_topic("time", "alarm_time"),
+                 json.dumps({"hour": h, "minute": m, "second": sec}))
+        self.pub(self.state_topic("select", "alarm_repeat"), s["alarm_days"])
+        self.pub(self.state_topic("number", "snooze__min_"),
+                 f"{float(s['alarm_snooze_minutes']):.6f}")
+        self.pub(self.state_topic("number", "volume"), f"{float(s['volume']):.6f}")
+        self.pub(self.state_topic("sensor", "alarm_state"), s["alarm_state"])
+        self.pub(self.state_topic("sensor", "now_playing"), s["now_playing"] or "(null)")
+        self.pub(self.state_topic("sensor", "firmware"), self.fw)
+        self.pub(self.state_topic("sensor", "device_id"), self.device_id)
+        self.pub(self.state_topic("sensor", "wi-fi_signal"), -55)
+        self.pub(self.state_topic("binary_sensor", "mqtt"), "ON")
+        self.pub(self.state_topic("switch", "radio"), s["radio"])
+        self.pub(self.state_topic("select", "station"), s["station"])
 
     def publish_discovery(self):
         for comp, obj, payload in self.discovery():
@@ -229,55 +196,62 @@ class Sim:
         self.pub(self.avail, "online")
         self.publish_discovery()
         self.publish_all_state()
-        for sub in (f"{self.base}/alarm/+/set", f"{self.base}/alarm/+/cmd",
-                    f"{self.base}/radio/+/set", f"{self.base}/radio/+/cmd",
-                    f"{self.base}/device/+/cmd"):
-            client.subscribe(sub)
+        client.subscribe(f"{self.base}/+/+/command")
+
+    def _num(self, payload):
+        try:
+            return int(float(payload))
+        except ValueError:
+            return None
 
     def on_message(self, client, userdata, msg):
-        topic = msg.topic
+        parts = msg.topic.split("/")
+        if len(parts) < 4 or not msg.topic.endswith("/command"):
+            return
+        comp, obj = parts[-3], parts[-2]
         payload = msg.payload.decode().strip()
-        print(f"[cmd] {topic} = {payload}")
+        print(f"[cmd] {comp}/{obj} = {payload}")
         s = self.state
-        if topic.endswith("alarm/enabled/set"):
+
+        if (comp, obj) == ("switch", "alarm_enabled"):
             s["alarm_enabled"] = payload
             s["alarm_state"] = "idle" if payload == "ON" else "disabled"
-            self.pub(f"{self.base}/alarm/state", s["alarm_state"])
-        elif topic.endswith("alarm/time/set"):
-            s["alarm_time"] = payload
-        elif topic.endswith("alarm/days/set"):
+        elif (comp, obj) == ("time", "alarm_time"):
+            try:
+                d = json.loads(payload)
+                s["alarm_time"] = f"{int(d['hour']):02d}:{int(d['minute']):02d}:{int(d.get('second', 0)):02d}"
+            except (ValueError, KeyError):
+                return
+        elif (comp, obj) == ("select", "alarm_repeat"):
             s["alarm_days"] = payload
-        elif topic.endswith("alarm/snooze_minutes/set"):
-            s["alarm_snooze_minutes"] = int(payload)
-        elif topic.endswith("alarm/snooze/cmd"):
+        elif (comp, obj) == ("number", "snooze__min_"):
+            v = self._num(payload)
+            if v is not None:
+                s["alarm_snooze_minutes"] = v
+        elif (comp, obj) == ("number", "volume"):
+            v = self._num(payload)
+            if v is not None:
+                s["volume"] = v
+        elif (comp, obj) == ("button", "snooze"):
             s["alarm_state"] = "snoozed"
-            self.pub(f"{self.base}/alarm/state", "snoozed")
-        elif topic.endswith("alarm/dismiss/cmd"):
+        elif (comp, obj) == ("button", "dismiss"):
             s["alarm_state"] = "idle" if s["alarm_enabled"] == "ON" else "disabled"
-            self.pub(f"{self.base}/alarm/state", s["alarm_state"])
-        elif topic.endswith("radio/power/set"):
+        elif (comp, obj) == ("switch", "radio"):
             s["radio"] = payload
             s["now_playing"] = s["station"] if payload == "ON" else ""
-            self.pub(f"{self.base}/radio/power/state", s["radio"])
-            self.pub(f"{self.base}/radio/now_playing", s["now_playing"])
-        elif topic.endswith("radio/station/set"):
+        elif (comp, obj) == ("select", "station"):
             s["station"] = payload
             if s["radio"] == "ON":
                 s["now_playing"] = payload
-                self.pub(f"{self.base}/radio/now_playing", payload)
-        elif topic.endswith("radio/volume/set"):
-            s["volume"] = int(payload)
-        elif topic.endswith("radio/next/cmd") or topic.endswith("radio/prev/cmd"):
+        elif (comp, obj) in (("button", "next_station"), ("button", "previous_station")):
+            step = 1 if obj == "next_station" else -1
             i = self.station_names.index(s["station"])
-            step = 1 if topic.endswith("next/cmd") else -1
             s["station"] = self.station_names[(i + step) % len(self.station_names)]
-            self.pub(f"{self.base}/radio/station/state", s["station"])
             if s["radio"] == "ON":
                 s["now_playing"] = s["station"]
-                self.pub(f"{self.base}/radio/now_playing", s["station"])
-        elif topic.endswith("device/reboot/cmd"):
+        elif (comp, obj) == ("button", "reboot"):
             print("[sim] reboot requested (simulated)")
-        # reflect the changed value back on its /state topic
+
         self.publish_all_state()
 
     # -- alarm scheduling -------------------------------------------------- #
@@ -288,14 +262,8 @@ class Sim:
         if (self.state["alarm_state"] == "idle"
                 and now.strftime("%H:%M:00") == self.state["alarm_time"]):
             self.state["alarm_state"] = "ringing"
-            self.pub(f"{self.base}/alarm/state", "ringing")
+            self.pub(self.state_topic("sensor", "alarm_state"), "ringing")
             print("[sim] ALARM RINGING")
-        nxt = now.replace(hour=int(self.state["alarm_time"][:2]),
-                          minute=int(self.state["alarm_time"][3:5]),
-                          second=0, microsecond=0)
-        if nxt <= now:
-            nxt += dt.timedelta(days=1)
-        self.pub(f"{self.base}/alarm/next", nxt.isoformat())
 
     def run(self):
         self.client.loop_start()

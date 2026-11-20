@@ -5,62 +5,73 @@
 # MQTT-discovered entities into a real `media_player` using the BUILT-IN
 # Universal Media Player integration (no custom component required).
 #
-# Include this from configuration.yaml:
+# Include from configuration.yaml:
 #     media_player: !include ha/universal_media_player.yaml
-# or copy the block into configuration.yaml / a package.
 #
-# MULTI-DEVICE: duplicate one entry per alarm clock, replacing "b8d61f" with
-# that device's id (the entity ids below are namespaced by device_id — see
-# docs/mqtt-interface.md §1). Optionally generate this file per device.
+# ── Entity ids ───────────────────────────────────────────────────────────────
+# The firmware uses ESPHome's native MQTT scheme (docs/mqtt-interface.md,
+# option (a)). HA derives entity_ids from the entity NAME, not the device id
+# (docs/mqtt-interface.md §9), so they look like `switch.radio`, `number.volume`,
+# `select.station`, `button.next_station`, `sensor.now_playing`.
+# >> CONFIRM the exact ids in your install (Developer Tools → States) and adjust.
+#
+# ── Status ───────────────────────────────────────────────────────────────────
+# The radio entities (switch radio / select station / buttons) are NOT yet in
+# the firmware — they arrive with the audio work (tasks.md B3). This file is
+# ready for when they land; the simulator already emits them so you can test the
+# whole path now (tools/mqtt_sim.py).
+#
+# MULTI-DEVICE: duplicate one entry per alarm clock and rename (HA will append
+# suffixes like `_2` to colliding entity ids; rename in the UI to disambiguate).
 # =============================================================================
 
 - platform: universal
-  name: "Alarm Clock b8d61f"
-  unique_id: alarmclock_b8d61f_media_player
+  name: "Alarm Clock Radio"
+  unique_id: alarmclock_48e620_media_player
   device_class: speaker
   children:
-    - switch.alarmclock_b8d61f_radio
+    - switch.radio
   commands:
     turn_on:
       service: switch.turn_on
-      target: { entity_id: switch.alarmclock_b8d61f_radio }
+      target: { entity_id: switch.radio }
     turn_off:
       service: switch.turn_off
-      target: { entity_id: switch.alarmclock_b8d61f_radio }
+      target: { entity_id: switch.radio }
     volume_set:
       service: number.set_value
-      target: { entity_id: number.alarmclock_b8d61f_volume }
+      target: { entity_id: number.volume }
       data: { value: "{{ (volume_level * 100) | round(0) | int }}" }
     volume_up:
       service: number.set_value
-      target: { entity_id: number.alarmclock_b8d61f_volume }
-      data: { value: "{{ (state_attr('number.alarmclock_b8d61f_volume','value') | float(0) + 5) | int }}" }
+      target: { entity_id: number.volume }
+      data: { value: "{{ (state_attr('number.volume','value') | float(0) + 5) | int }}" }
     volume_down:
       service: number.set_value
-      target: { entity_id: number.alarmclock_b8d61f_volume }
-      data: { value: "{{ (state_attr('number.alarmclock_b8d61f_volume','value') | float(0) - 5) | int }}" }
+      target: { entity_id: number.volume }
+      data: { value: "{{ (state_attr('number.volume','value') | float(0) - 5) | int }}" }
     media_play:
       service: switch.turn_on
-      target: { entity_id: switch.alarmclock_b8d61f_radio }
+      target: { entity_id: switch.radio }
     media_pause:
       service: switch.turn_off
-      target: { entity_id: switch.alarmclock_b8d61f_radio }
+      target: { entity_id: switch.radio }
     media_stop:
       service: switch.turn_off
-      target: { entity_id: switch.alarmclock_b8d61f_radio }
+      target: { entity_id: switch.radio }
     media_next_track:
       service: button.press
-      target: { entity_id: button.alarmclock_b8d61f_next_station }
+      target: { entity_id: button.next_station }
     media_previous_track:
       service: button.press
-      target: { entity_id: button.alarmclock_b8d61f_prev_station }
+      target: { entity_id: button.previous_station }
     select_source:
       service: select.select_option
-      target: { entity_id: select.alarmclock_b8d61f_station }
+      target: { entity_id: select.station }
       data: { option: "{{ source }}" }
   attributes:
-    state: "{{ 'playing' if is_state('switch.alarmclock_b8d61f_radio','on') else 'idle' }}"
-    source: "{{ states('select.alarmclock_b8d61f_station') }}"
-    source_list: "{{ state_attr('select.alarmclock_b8d61f_station','options') }}"
-    volume_level: "{{ (states('number.alarmclock_b8d61f_volume') | float(0) / 100) | round(2) }}"
-    media_title: "{{ states('sensor.alarmclock_b8d61f_now_playing') }}"
+    state: "{{ 'playing' if is_state('switch.radio','on') else 'idle' }}"
+    source: "{{ states('select.station') }}"
+    source_list: "{{ state_attr('select.station','options') }}"
+    volume_level: "{{ (states('number.volume') | float(0) / 100) | round(2) }}"
+    media_title: "{{ states('sensor.now_playing') }}"

@@ -24,9 +24,12 @@ web installer) — no app needed. If it can't connect it raises a fallback hotsp
 ## 3. Confirm in Home Assistant
 
 On connect, the device publishes MQTT discovery; entities appear automatically
-(one HA device per clock, named `alarmclock-<device_id>`). Expect a `switch`,
-`time`, `select`, several `number`/`button`/`sensor` entities, plus the
-diagnostic entities (see `docs/mqtt-interface.md` §3).
+under a device named **"Alarm Clock"** (with the `Device id` sensor showing the
+MAC-derived id, e.g. `48e620`). Expect a `switch`, `time`, `select`, several
+`number`/`button`/`sensor` entities, plus the diagnostic entities (see
+`docs/mqtt-interface.md` §3). HA derives entity_ids from the entity **name**, so
+they look like `switch.alarm_enabled`, `time.alarm_time`, `select.alarm_repeat`
+— confirm exact ids under Developer Tools → States.
 
 ## 4. Add the media_player façade (optional)
 
@@ -37,14 +40,15 @@ Include the Universal Media Player so the radio shows as a real `media_player`:
 media_player: !include ha/universal_media_player.yaml
 ```
 
-Duplicate the entry per device (replace the id). See `ha/universal_media_player.yaml`.
+Duplicate the entry per device and confirm the entity ids. See
+`ha/universal_media_player.yaml`. (Requires the radio entities — Track B3.)
 
 ## 5. Using it
 
-- **Alarm:** `switch.alarmclock_<id>_alarm_enabled`, `time...._alarm_time`,
-  `select...._alarm_days`; snooze/dismiss via the buttons.
-- **Radio:** `switch...._radio`, `select...._station`, `number...._volume`;
-  now-playing on the sensor.
+- **Alarm:** `switch.alarm_enabled`, `time.alarm_time`, `select.alarm_repeat`;
+  snooze/dismiss via `button.snooze` / `button.dismiss`.
+- **Radio (once available):** `switch.radio`, `select.station`, `number.volume`;
+  now-playing on `sensor.now_playing`.
 - The alarm **fires on-device even if HA/broker are offline**.
 
 ## Testing without hardware
