@@ -200,6 +200,12 @@ runtime-MAC id derivation, release artefacts).* → *Everything else is hardware
 - [ ] Verify on-device scheduling, NVS persistence across reboot, DST transition.
 - [ ] **Critical:** alarm fires with HA and broker powered off.
 - [ ] Snooze/dismiss/enable-from-HA on real device.
+- [x] **On-device (HA-independent) alarm cancel.** CST816T touch: tapping the
+      panel dismisses a ringing alarm and stops the radio, so cancellation never
+      needs HA. Verified on hardware (alarm rang → tap → radio off, state back to
+      `idle`). NB: the `touchscreen:` block must be declared **after** the audio
+      stack — otherwise `es8311.audio_dac` fails to probe (setup ordering on the
+      shared I²C bus). See `firmware/README.md`.
 - [x] **Set alarm time from HA over MQTT.** ESPHome's built-in MQTT `time`
       entity uses JSON, HA's `time` platform uses ISO `HH:MM:SS` — incompatible,
       so HA sets were dropped. Fixed with a hand-rolled ISO-format time entity

@@ -16,6 +16,11 @@ ESPHome firmware for the alarm clock. See [`design.md`](../design.md) §7/§13 a
   - **Codecs:** a top-level `audio: codecs:` block is required. ESPHome only
     compiles the codecs listed there (default: FLAC only), so **MP3 streams fail
     with `ESP_ERR_NOT_SUPPORTED` unless `mp3` is listed**. See `design.md` §10.2.
+  - **Setup ordering (I²C):** at equal setup priority ESPHome initialises
+    components in the order they appear in the config. The CST816T touch
+    controller (which resets and can hold SCL during bring-up) must be declared
+    **after** the audio stack, otherwise `es8311.audio_dac` fails to probe
+    (`… was marked as failed`). Keep the `touchscreen:` block last.
 
 ## Build / flash
 
@@ -54,5 +59,6 @@ Alarm + radio entity logic, the on-device alarm engine, Wi-Fi onboarding, the
 MQTT layer, the `Device id`/`Firmware` sensors and the **on-screen clock**
 (ST7789V: time + date + alarm status) are implemented. On hardware: Wi-Fi/MQTT
 up, discovery + command round-trips verified, **internet radio plays**
-(ES8311/I2S; `Radio` switch + `Station` select + `Volume`). Touch (CST816T) is
-the remaining stubbed block.
+(ES8311/I2S; `Radio` switch + `Station` select + `Volume`), and the **CST816T
+touch screen** dismisses a ringing alarm / stops the radio (HA-independent:
+tap-to-cancel verified — alarm rings, tap dismisses it and stops playback).
