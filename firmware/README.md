@@ -11,8 +11,8 @@ ESPHome firmware for the alarm clock. See [`design.md`](../design.md) §7/§13 a
     Validates and compiles without hardware.
   - **Track B (bring-up):** the audio stack (ES8311 + I2S + `media_player`, pins
     per `design.md` §3.2) is wired up and **plays internet radio on hardware**;
-    remaining items are the CST816T touch block and confirming the panel's
-    rotation/offsets.
+    the CST816T touch block is in and **verified** (tap-to-cancel); remaining
+    is confirming the panel's rotation/offsets (tasks.md B5).
   - **Codecs:** a top-level `audio: codecs:` block is required. ESPHome only
     compiles the codecs listed there (default: FLAC only), so **MP3 streams fail
     with `ESP_ERR_NOT_SUPPORTED` unless `mp3` is listed**. See `design.md` §10.2.
