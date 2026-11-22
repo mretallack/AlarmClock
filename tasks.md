@@ -211,6 +211,21 @@ runtime-MAC id derivation, release artefacts).* → *Everything else is hardware
       so HA sets were dropped. Fixed with a hand-rolled ISO-format time entity
       (ESPHome `datetime` made `internal`); verified on hardware: HA-style
       `HH:MM:SS` command updates the device and echoes back. (docs/mqtt-interface.md §3.)
+- [x] **Cold-boot ES8311 silent-audio failure + self-heal.** On a **cold**
+      power-up `es8311.audio_dac` can fail to probe over I²C (`… is marked
+      FAILED: unspecified`): `setup()` writes ~12 registers and `mark_failed()`s
+      on the first failed write, with **no retry** (`use_mclk`/`use_microphone`/
+      `reset_pin` are the only knobs). The alarm then plays **silent** — the
+      worst failure mode for an alarm clock. Warm (software) reboots always
+      re-init the codec. Declaring `touchscreen:` last (setup ordering) is
+      **not sufficient** on a cold start. Fix: an `on_boot` at
+      `priority: -100` (`setup_priority::LATE`) checks `es8311_dac.is_failed()`
+      and does **one** guarded warm reboot (`App.safe_reboot()`, loop-guarded by
+      the persisted `g_boot_retries`, max 2). An `Audio ok` diagnostic
+      binary_sensor surfaces the state in HA. Implemented + builds + OTA-flashed;
+      **cold-cycle re-test still pending** (needs a physical power cut).
+- [ ] **Size the cold-boot ES8311 failure rate** — cold-cycle ~5× to see how
+      often it actually fails (a genuinely new B4 finding, 2026-11-20).
 - [ ] Confirm RTC behaviour across power loss (Q3).
 
 ## B5. Screen / UI validation  *(design.md M5)*

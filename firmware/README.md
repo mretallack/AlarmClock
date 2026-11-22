@@ -21,6 +21,17 @@ ESPHome firmware for the alarm clock. See [`design.md`](../design.md) §7/§13 a
     controller (which resets and can hold SCL during bring-up) must be declared
     **after** the audio stack, otherwise `es8311.audio_dac` fails to probe
     (`… was marked as failed`). Keep the `touchscreen:` block last.
+  - **Cold-boot ES8311 self-heal (2026-11-20):** ordering is **not sufficient
+    on a cold power-up** — the codec can still fail to probe (I²C/power race),
+    and it `mark_failed()`s with no retry, so there is **no audio path for the
+    whole boot** and a ringing alarm is **silent**. Warm (software) reboots
+    always re-init the codec. Mitigation: an `esphome: on_boot:` at
+    `priority: -100` (`setup_priority::LATE`, i.e. after every component has
+    set up) checks `id(es8311_dac).is_failed()` and, if so, does **one** guarded
+    warm reboot via `App.safe_reboot()`. The persisted global `g_boot_retries`
+    caps it at 2 reboots so a *permanently* dead codec can't reboot-loop; the
+    `Audio ok` diagnostic binary_sensor exposes the state to HA. Cold-cycle
+    failure rate not yet sized (see `tasks.md` B4).
 
 ## Build / flash
 
