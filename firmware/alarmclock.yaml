@@ -146,12 +146,17 @@ udp:
           condition:
             lambda: 'return id(g_voice_cmd) == "LISTEN";'
           then:
+            - lambda: id(g_voice_stream) = true;
+            - micro_wake_word.stop:
+                id: mww
             - switch.turn_on: sw_voice_agent
       - if:
           condition:
             lambda: 'return id(g_voice_cmd) == "STOP";'
           then:
             - lambda: id(g_voice_stream) = false;
+            - micro_wake_word.stop:
+                id: mww
             - switch.turn_off: sw_voice_agent
       - if:
           condition:
