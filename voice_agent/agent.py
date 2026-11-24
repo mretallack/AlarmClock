@@ -181,7 +181,7 @@ def cmd_calibrate(cfg: dict, args: argparse.Namespace) -> int:
     url = f"http://{public_host}:{http_port}/reply.wav"
     cal_path = OUT_DIR / "calibration.wav"
 
-    audio.generate_chime(OUT_DIR / "reply.wav", sample_rate=48000)
+    audio.generate_chime(OUT_DIR / "reply.wav", sample_rate=48000, volume=1.0)
     srv = server.AudioServer(OUT_DIR, cfg["server"]["bind"], http_port).start()
     try:
         print(f"[cal] cue in {args.delay:.0f}s — chime = start talking", flush=True)
@@ -235,7 +235,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = sub.add_parser("run", help="continuous listen -> answer loop (no LLM)")
     run.add_argument(
-        "--threshold", type=float, default=60.0, help="RMS gate for speech (default 60)"
+        "--threshold", type=float, default=90.0, help="RMS gate for speech (default 90)"
     )
     run.add_argument(
         "--silence-ms", type=int, default=700, help="quiet time that ends an utterance"

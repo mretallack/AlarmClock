@@ -101,7 +101,7 @@ python3 -m voice_agent.agent run --threshold 300 --silence-ms 700 --max-seconds 
 ```
 
 The gate is calibrated in raw 16-bit RMS units. Measured on this board: a quiet
-room sits around 14–25, speech peaks around 180–240. The default threshold of 60
+room sits around 14–32, speech peaks around 166–358. The default threshold of 90
 sits between them. Raise it if background noise triggers it; lower it if your
 voice never does.
 
