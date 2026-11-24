@@ -87,6 +87,14 @@ esphome:
                      "ES8311 STILL failed after %d warm reboots; staying up but "
                      "audio is dead", id(g_boot_retries));
           }
+      # A restored value does not fire `on_value`, so without this the speaker
+      # volume stays at its compile-time default until HA happens to change it.
+      # Symptom: on a cold boot the radio starts but is silent until the volume
+      # slider is nudged. Apply the restored volume once, after the player is up.
+      - delay: 1s
+      - media_player.volume_set:
+          id: radio_player
+          volume: !lambda "return id(num_volume).state / 100.0f;"
       # Radio off at boot -> arm the on-device wake word.
       - if:
           condition:
