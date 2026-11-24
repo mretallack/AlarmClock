@@ -19,5 +19,7 @@ public_host = "10.0.0.78"
 [audio]
 # The device speaker pipeline runs at 48 kHz mono; keep replies in that format.
 sample_rate = 48000
+# Uplink (mic) is 16 kHz because the on-device wake word requires it.
+uplink_sample_rate = 16000
 channels = 1
 sample_width = 2

@@ -81,7 +81,7 @@ def cmd_serve(cfg: dict, args: argparse.Namespace) -> int:
 def cmd_listen(cfg: dict, args: argparse.Namespace) -> int:
     """Tell the device to open its mic, record the PCM, then stop the mic."""
     audio_port = int(cfg["device"].get("audio_port", 5005))
-    sample_rate = int(cfg["audio"]["sample_rate"])
+    sample_rate = int(cfg["audio"].get("uplink_sample_rate", 16000))
     path = OUT_DIR / "mic.wav"
 
     send_command(cfg, protocol.listen())
@@ -114,7 +114,8 @@ def cmd_run(cfg: dict, args: argparse.Namespace) -> int:
     loop hands the bus back and forth: LISTEN -> capture -> STOP -> PLAY.
     """
     audio_port = int(cfg["device"].get("audio_port", 5005))
-    sample_rate = int(cfg["audio"]["sample_rate"])
+    sample_rate = int(cfg["audio"].get("uplink_sample_rate", 16000))
+    reply_rate = int(cfg["audio"]["sample_rate"])
     public_host = cfg["server"]["public_host"]
     port = int(cfg["server"]["port"])
     url = f"http://{public_host}:{port}/reply.wav"
@@ -150,7 +151,7 @@ def cmd_run(cfg: dict, args: argparse.Namespace) -> int:
 
             reply = audio.generate_chime(
                 OUT_DIR / "reply.wav",
-                sample_rate=sample_rate,
+                sample_rate=reply_rate,
                 volume=args.volume,
             )
             seconds = audio.duration_seconds(reply)
@@ -194,7 +195,12 @@ def cmd_calibrate(cfg: dict, args: argparse.Namespace) -> int:
     send_command(cfg, protocol.listen())
     time.sleep(0.4)
     try:
-        uplink.record(cal_path, seconds=args.seconds, verbose=not args.quiet)
+        uplink.record(
+            cal_path,
+            seconds=args.seconds,
+            sample_rate=int(cfg["audio"].get("uplink_sample_rate", 16000)),
+            verbose=not args.quiet,
+        )
     finally:
         send_command(cfg, protocol.stop())
 
@@ -202,6 +208,62 @@ def cmd_calibrate(cfg: dict, args: argparse.Namespace) -> int:
     print("\n[cal] === calibration report ===", flush=True)
     for key, value in report.items():
         print(f"[cal] {key}: {value}", flush=True)
+    return 0
+
+
+def cmd_wake(cfg: dict, args: argparse.Namespace) -> int:
+    """Wait for the device's on-device wake word, then capture and answer.
+
+    The device runs the wake word while the radio is off. On detection it sends
+    WAKE and starts streaming PCM; this loop records the command and plays a
+    reply. The device re-arms the wake word itself when the reply finishes.
+    """
+    audio_port = int(cfg["device"].get("audio_port", 5005))
+    cmd_port = int(cfg["device"].get("command_port", 5006))
+    sample_rate = int(cfg["audio"].get("uplink_sample_rate", 16000))
+    reply_rate = int(cfg["audio"]["sample_rate"])
+    public_host = cfg["server"]["public_host"]
+    port = int(cfg["server"]["port"])
+    url = f"http://{public_host}:{port}/reply.wav"
+
+    srv = server.AudioServer(OUT_DIR, cfg["server"]["bind"], port).start()
+    print(f"[wake] waiting for the wake word on UDP {cmd_port}", flush=True)
+    try:
+        while True:
+            if not uplink.wait_for_wake(port=cmd_port, timeout=args.timeout):
+                print("[wake] no wake word; exiting", flush=True)
+                return 0
+            print("[wake] detected — recording the command", flush=True)
+            pcm, peak = uplink.capture_utterance(
+                port=audio_port,
+                threshold=args.threshold,
+                silence_ms=args.silence_ms,
+                max_seconds=args.max_seconds,
+                min_seconds=args.min_seconds,
+                sample_rate=sample_rate,
+                verbose=not args.quiet,
+            )
+            if not pcm:
+                print("[wake] nothing captured; re-arming", flush=True)
+                continue
+
+            wav = OUT_DIR / "heard.wav"
+            audio.write_pcm_wav(wav, pcm, sample_rate=sample_rate)
+            print(
+                f"[wake] heard {len(pcm) // 2 / sample_rate:.2f}s peak RMS {peak:.0f}"
+                f" -> {wav}",
+                flush=True,
+            )
+            reply = audio.generate_chime(
+                OUT_DIR / "reply.wav", sample_rate=reply_rate, volume=args.volume
+            )
+            seconds = audio.duration_seconds(reply)
+            send_command(cfg, protocol.play(url))
+            time.sleep(seconds + args.margin + 1.0)
+    except KeyboardInterrupt:
+        print("\n[wake] stopped by user", flush=True)
+    finally:
+        srv.stop()
     return 0
 
 
@@ -260,6 +322,17 @@ def build_parser() -> argparse.ArgumentParser:
     cal.add_argument("--seconds", type=float, default=40.0, help="recording window")
     cal.add_argument("--quiet", action="store_true", help="hide the level meter")
     cal.set_defaults(func=cmd_calibrate)
+
+    wake = sub.add_parser("wake", help="wait for the on-device wake word, then answer")
+    wake.add_argument("--threshold", type=float, default=90.0, help="RMS gate for speech")
+    wake.add_argument("--silence-ms", type=int, default=700)
+    wake.add_argument("--max-seconds", type=float, default=8.0)
+    wake.add_argument("--min-seconds", type=float, default=0.35)
+    wake.add_argument("--timeout", type=float, default=3600.0, help="give up after N seconds")
+    wake.add_argument("--volume", type=float, default=0.35)
+    wake.add_argument("--margin", type=float, default=1.0)
+    wake.add_argument("--quiet", action="store_true")
+    wake.set_defaults(func=cmd_wake)
 
     stop = sub.add_parser("stop", help="stop the device mic")
     stop.set_defaults(func=cmd_stop)

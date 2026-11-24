@@ -87,6 +87,13 @@ esphome:
                      "ES8311 STILL failed after %d warm reboots; staying up but "
                      "audio is dead", id(g_boot_retries));
           }
+      # Radio off at boot -> arm the on-device wake word.
+      - if:
+          condition:
+            lambda: 'return !id(g_radio_on);'
+          then:
+            - micro_wake_word.start:
+                id: mww
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -144,17 +151,30 @@ udp:
           condition:
             lambda: 'return id(g_voice_cmd) == "STOP";'
           then:
+            - lambda: id(g_voice_stream) = false;
             - switch.turn_off: sw_voice_agent
       - if:
           condition:
             lambda: 'return id(g_voice_cmd).rfind("PLAY ", 0) == 0;'
           then:
+            - lambda: id(g_voice_stream) = false;
             - switch.turn_off: sw_voice_agent
             - delay: 120ms
             - media_player.play_media:
                 id: radio_player
                 media_url: !lambda 'return id(g_voice_url);'
                 announcement: true
+      - if:
+          condition:
+            lambda: 'return id(g_voice_cmd) == "RESUME";'
+          then:
+            - lambda: id(g_voice_stream) = false;
+            - if:
+                condition:
+                  switch.is_off: sw_radio
+                then:
+                  - micro_wake_word.start:
+                      id: mww
       - if:
           condition:
             lambda: 'return id(g_voice_cmd) == "PING";'
@@ -301,6 +321,14 @@ globals:
     type: std::string
     restore_value: false
     initial_value: '""'
+  - id: g_voice_stream
+    type: bool
+    restore_value: false
+    initial_value: "false"   # true only while the PC should receive mic PCM
+  - id: g_voice_agent_active
+    type: bool
+    restore_value: false
+    initial_value: "false"   # true while the PC drives a plain mic capture
 
 # --- Alarm entities --------------------------------------------------------
 switch:
@@ -319,10 +347,20 @@ switch:
     optimistic: true
     restore_mode: RESTORE_DEFAULT_OFF
     on_turn_on:
+      # The radio's 48 kHz speaker owns the bus; stop the 16 kHz wake-word mic.
+      - micro_wake_word.stop:
+          id: mww
       - media_player.turn_on: radio_player
       - script.execute: play_station
     on_turn_off:
       - media_player.stop: radio_player
+      # Radio off -> bus free -> arm the wake word (unless the PC is capturing).
+      - if:
+          condition:
+            lambda: 'return !id(g_voice_agent_active);'
+          then:
+            - micro_wake_word.start:
+                id: mww
   # Voice agent: the mic and speaker share one I2S bus, so arming the mic
   # stops the radio first. The PC drives this over UDP (LISTEN/STOP).
   - platform: template
@@ -333,6 +371,9 @@ switch:
     on_turn_on:
       - lambda: |-
           ESP_LOGI("voice", "voice agent ON: stopping radio");
+          id(g_voice_agent_active) = true;
+      - micro_wake_word.stop:
+          id: mww
       - switch.turn_off: sw_radio
       - media_player.stop: radio_player
       - lambda: |-
@@ -346,6 +387,7 @@ switch:
     on_turn_off:
       - lambda: |-
           ESP_LOGI("voice", "voice agent OFF: stopping mic");
+          id(g_voice_agent_active) = false;
       - microphone.stop_capture: mic
   # Speaker amplifier enable (PA_CTRL). Internal; on while the device runs.
   - platform: gpio
@@ -648,6 +690,35 @@ media_player:
       - lambda: id(g_radio_on) = true;
     on_turn_off:
       - lambda: id(g_radio_on) = false;
+    on_idle:
+      # A reply finished and the radio is off -> re-arm the wake word.
+      - if:
+          condition:
+            lambda: 'return !id(g_radio_on) && !id(g_voice_agent_active);'
+          then:
+            - micro_wake_word.start:
+                id: mww
+
+# --- Wake word (on-device, 16 kHz) -----------------------------------------
+# Runs only while the radio is off: the radio's 48 kHz speaker and the 16 kHz
+# wake-word mic share one I2S bus, so they are mutually exclusive. On detection
+# the device tells the PC "WAKE" and starts streaming PCM so the PC can capture
+# the command. The PC drives playback and the device resumes listening after.
+micro_wake_word:
+  id: mww
+  microphone: mic
+  models:
+    - model: okay_nabu
+  stop_after_detection: false
+  on_wake_word_detected:
+    - lambda: |-
+        if (!id(g_voice_stream)) {
+          id(g_voice_stream) = true;
+          ESP_LOGI("voice", "wake word detected; streaming to PC");
+        }
+    - udp.write:
+        id: voice_cmd_udp
+        data: "WAKE"
 
 # --- Microphone: ES7210 ADC over the shared I2S bus (voice agent) ----------
 # The mic array is on the ES7210 (see the audio_adc block above); the ES8311
@@ -661,7 +732,9 @@ microphone:
     i2s_din_pin: GPIO11
     adc_type: external
     pdm: false
-    sample_rate: 48000
+    # 16 kHz: micro_wake_word requires it. The speaker bus runs at 48 kHz;
+    # the shared I2S bus is only ever locked by one of them at a time.
+    sample_rate: 16000
     bits_per_sample: 16bit
     # The speaker runs mono on the ES8311's LEFT slot; reading the right slot
     # returns digital silence. Match the speaker's slot.
@@ -673,9 +746,13 @@ microphone:
           if (chunks == 1 || chunks % 100 == 0) {
             ESP_LOGI("voice", "mic chunk %u: %u bytes", (unsigned) chunks, (unsigned) x.size());
           }
-      - udp.write:
-          id: voice_audio_udp
-          data: !lambda 'return x;'
+      - if:
+          condition:
+            lambda: 'return id(g_voice_stream);'
+          then:
+            - udp.write:
+                id: voice_audio_udp
+                data: !lambda 'return x;'
 
 # --- Touch: CST816T (i2c, int 48, rst 47) -----------------------------------
 # Tap anywhere to cancel a ringing alarm (and stop the radio). This makes

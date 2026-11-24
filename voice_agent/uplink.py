@@ -104,6 +104,25 @@ def capture_utterance(
     return pcm, peak
 
 
+def wait_for_wake(
+    *, port: int = 5006, bind: str = "0.0.0.0", timeout: float = 3600.0
+) -> bool:
+    """Block until the device sends a WAKE datagram (or timeout)."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind((bind, port))
+    sock.settimeout(timeout)
+    try:
+        while True:
+            data, _addr = sock.recvfrom(2048)
+            if data.strip().upper() == b"WAKE":
+                return True
+    except socket.timeout:
+        return False
+    finally:
+        sock.close()
+
+
 def analyse(path: str | Path, sample_rate: int = 48000, window_ms: int = 20) -> dict:
     """Summarise a WAV: room-noise floor vs speech, and a suggested gate."""
     import wave
