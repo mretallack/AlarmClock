@@ -708,7 +708,7 @@ micro_wake_word:
   id: mww
   microphone: mic
   models:
-    - model: okay_nabu
+    - model: hey_jarvis
   stop_after_detection: false
   on_wake_word_detected:
     - lambda: |-
