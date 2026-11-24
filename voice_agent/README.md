@@ -18,7 +18,7 @@ python3 -m voice_agent.agent chime
 
 python3 -m voice_agent.agent listen
   └─ UDP "LISTEN" ─────────────────►  stop radio, start mic
-  ◄────────────── raw PCM :5005 ────  microphone (ES8311 ADC, I2S)
+  ◄────────────── raw PCM :5005 ────  microphone (ES7210 ADC, I2S)
   └─ write out/mic.wav
   └─ UDP "STOP" ───────────────────►  stop mic
 ```
@@ -42,8 +42,9 @@ python3 -m voice_agent.agent run                # continuous listen -> answer lo
 ```
 
 `listen` writes `voice_agent/out/mic.wav` and prints a level meter. If the meter
-stays at 0, the mic is not hearing anything (check the bus handover and the
-ES8311 ADC).
+stays at 0, the mic is not hearing anything — check the bus handover and that the
+`es7210` `audio_adc` block is present (without it the ADC stays powered down and
+drives silence on I2S DIN).
 
 ## Protocol
 
@@ -56,7 +57,11 @@ One UTF-8 command per UDP datagram, port **5006**:
 | `STOP` | stop the mic |
 | `PING` | liveness probe (logged by the device) |
 
-Audio uplink: raw PCM, 48 kHz, 16-bit, mono, UDP port **5005**.
+Audio uplink: raw PCM, **16 kHz**, 16-bit, mono, UDP port **5005**.
+
+The 16 kHz rate is not cosmetic: the on-device wake word requires it, and the
+ES7210 ADC must be configured to the same rate (`audio_adc: sample_rate: 16000`).
+A 48 kHz ADC read as 16 kHz produces noise, not voice.
 
 ## Firmware requirement
 
@@ -105,8 +110,64 @@ room sits around 14–32, speech peaks around 166–358. The default threshold o
 sits between them. Raise it if background noise triggers it; lower it if your
 voice never does.
 
+## Status: where we got to
+
+Working end-to-end:
+
+- **PC → clock speaker.** `chime` / `PLAY <url>` generates a WAV, serves it over
+  HTTP and plays it on the clock as an announcement. Verified.
+- **Clock mic → PC.** `listen` arms the mic over UDP and records real PCM to
+  `out/mic.wav`. Verified: 498 packets, all non-zero, peak 471 RMS.
+- **Speech is now actually audible.** After the ES7210 fixes the capture shows
+  real dynamics (10 % of 20 ms windows above RMS 60, peak 823) instead of the
+  flat ~1 kHz hum we started with. `calibrate` suggests a gate of ~99.
+- **The dumb loop** (`run`) does listen → RMS gate → chime reply, no LLM and no
+  Home Assistant. See "The dumb loop" above.
+
+## The blocker: on-device wake word never fires
+
+The on-device `micro_wake_word` engine (`hey_jarvis`, 16 kHz) is configured and
+reported as loaded — `[micro_wake_word] Wake Word: Hey Jarvis, cutoff 0.97` — but
+it has **never** produced a detection. The device never sends `WAKE`, so
+`python3 -m voice_agent.agent wake` waits forever.
+
+Three bugs were found and fixed on the way; one is still open:
+
+1. **Mic was never initialised.** The firmware configured the ES8311 (the DAC)
+   but never the ES7210 (the 4-channel ADC that actually owns the mic array), so
+   the ADC stayed powered down and drove zeros. Fixed with an `audio_adc:
+   platform: es7210` block. This was the "all-zero PCM" bug.
+2. **Sample-rate mismatch.** The ES7210 was configured for 48 kHz while the
+   microphone was read at 16 kHz, which yields noise-like data. Fixed by setting
+   the ADC to 16 kHz.
+3. **The wake-word engine was never re-armed.** `STOP` stopped the engine and
+   nothing restarted it, so after any PC capture "hey jarvis" was dead until a
+   reboot. Fixed: `STOP` now re-arms the engine when the radio is off.
+
+Still open — the engine is armed but does not detect. Remaining suspects, in
+order:
+
+- **The shared I2S bus.** `micro_wake_word` and the speaker both hang off
+  `i2s_out`; the handover is driven by the PC over UDP. If the bus is left in the
+  speaker's 48 kHz format when the engine arms, the engine sees the wrong rate.
+- **Signal level.** The mic is quiet even at 30 dB gain (peak 823 of 32767 with
+  someone talking). The model may simply not have enough SNR.
+- **Model/threshold.** `hey_jarvis` at cutoff 0.97 is strict; a lower cutoff or a
+  different model may be needed.
+- **ES7210 channel mapping.** The ADC is 4-channel non-TDM; only one slot is
+  read. If the wrong slot is selected the engine gets a near-silent channel.
+
+Diagnostic that was in place when we stopped: `logger: logs: micro_wake_word:
+DEBUG` (the engine's state changes and probabilities are DEBUG-only; at INFO it
+logs nothing at all, which is why the first tests looked like the engine was
+missing).
+
+Next step if we pick this up: run the engine with DEBUG logging while saying
+"hey jarvis", and check whether the state is `DETECTING_WAKE_WORD` and what
+probability the model reports.
+
 ## Not yet
 
-- Wake word
+- Wake word (blocked, see above)
 - Real speech recognition / replies beyond a chime
 - Conversation state machine

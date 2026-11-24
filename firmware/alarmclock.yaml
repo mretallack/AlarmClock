@@ -158,6 +158,15 @@ udp:
             - micro_wake_word.stop:
                 id: mww
             - switch.turn_off: sw_voice_agent
+            # Re-arm the wake word: the PC capture is over, the bus is free
+            # again. Without this the engine stays dead until a reboot.
+            - if:
+                condition:
+                  switch.is_off: sw_radio
+                then:
+                  - delay: 150ms
+                  - micro_wake_word.start:
+                      id: mww
       - if:
           condition:
             lambda: 'return id(g_voice_cmd).rfind("PLAY ", 0) == 0;'
@@ -651,7 +660,9 @@ audio_adc:
     i2c_id: i2c_bus
     address: 0x40
     bits_per_sample: 16bit
-    sample_rate: 48000
+    # Must match the microphone's 16 kHz: the ES7210 is told this rate and the
+    # I2S bus runs at the mic's rate. A 48 kHz ADC read at 16 kHz yields noise.
+    sample_rate: 16000
     mic_gain: 30dB
 
 speaker:
