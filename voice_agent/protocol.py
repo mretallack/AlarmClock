@@ -1,8 +1,9 @@
 """Tiny text protocol spoken over UDP to the alarm clock.
 
 PC -> device (UDP, port 5006):
-    PLAY <http-url>   play a WAV/MP3 as an announcement
-    STOP              stop playback
+    LISTEN            stop the radio and start the mic
+    PLAY <http-url>   stop the mic and play a WAV/MP3 as an announcement
+    STOP              stop the mic
     PING              liveness probe (device logs it)
 
 No framing, no JSON: one command per datagram, UTF-8, trailing newline optional.
@@ -15,6 +16,7 @@ from dataclasses import dataclass
 PLAY = "PLAY"
 STOP = "STOP"
 PING = "PING"
+LISTEN = "LISTEN"
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,10 @@ def stop() -> Command:
 
 def ping() -> Command:
     return Command(PING)
+
+
+def listen() -> Command:
+    return Command(LISTEN)
 
 
 def decode(payload: bytes) -> Command:

@@ -111,12 +111,14 @@ ota:
   - platform: esphome
     password: !secret ota_password
 
-# --- Voice agent control channel (PC -> device) -----------------------------
-# Phase 1: a dumb PC-side agent sends one plain-text UDP command and the device
-# plays the referenced WAV as an announcement. No microphone yet (phase 2).
-# Protocol: "PLAY <http-url>" | "STOP" | "PING" (see voice_agent/README.md).
+# --- Voice agent control channel (PC <-> device) ---------------------------
+# A dumb PC-side agent talks to the clock over plain-text UDP.
+#   PC -> device :5006  "LISTEN" | "STOP" | "PLAY <url>" | "PING"
+#   device -> PC :5005  raw PCM, 48 kHz, 16-bit, mono (mic uplink)
+# The mic and speaker share ONE I2S bus (no full duplex), so the device stops
+# the mic before it plays a reply. The PC drives the state machine.
 udp:
-  - id: voice_udp
+  - id: voice_cmd_udp
     port:
       listen_port: 5006
       broadcast_port: 5006
@@ -129,17 +131,45 @@ udp:
             cmd.pop_back();
           }
           ESP_LOGI("voice", "UDP command: %s", cmd.c_str());
+          id(g_voice_cmd) = cmd;
           if (cmd.rfind("PLAY ", 0) == 0) {
-            std::string url = cmd.substr(5);
-            id(radio_player).make_call()
-                .set_media_url(url)
-                .set_announcement(true)
-                .perform();
-          } else if (cmd == "STOP") {
-            id(radio_player).make_call().set_command("STOP").perform();
-          } else if (cmd == "PING") {
-            ESP_LOGI("voice", "PING ok");
+            id(g_voice_url) = cmd.substr(5);
           }
+      - if:
+          condition:
+            lambda: 'return id(g_voice_cmd) == "LISTEN";'
+          then:
+            - switch.turn_on: sw_voice_agent
+      - if:
+          condition:
+            lambda: 'return id(g_voice_cmd) == "STOP";'
+          then:
+            - switch.turn_off: sw_voice_agent
+      - if:
+          condition:
+            lambda: 'return id(g_voice_cmd).rfind("PLAY ", 0) == 0;'
+          then:
+            - switch.turn_off: sw_voice_agent
+            - delay: 120ms
+            - media_player.play_media:
+                id: radio_player
+                media_url: !lambda 'return id(g_voice_url);'
+                announcement: true
+      - if:
+          condition:
+            lambda: 'return id(g_voice_cmd) == "PING";'
+          then:
+            - lambda: ESP_LOGI("voice", "PING ok");
+            - udp.write:
+                id: voice_audio_udp
+                data: "PING"
+            - lambda: ESP_LOGI("voice", "udp.write returned");
+
+  # Audio uplink: PCM frames from the microphone go straight to the PC.
+  - id: voice_audio_udp
+    port: 5005
+    addresses:
+      - 10.0.0.78
 
 # --- Connectivity / provisioning (design.md §14.1) -------------------------
 improv_serial:                    # first-time Wi-Fi over USB serial (no app)
@@ -263,6 +293,14 @@ globals:
     restore_value: true
     initial_value: "0"        # ES8311 cold-boot self-heal guard (see on_boot);
                               # persists across the reboot so we never loop
+  - id: g_voice_cmd
+    type: std::string
+    restore_value: false
+    initial_value: '""'
+  - id: g_voice_url
+    type: std::string
+    restore_value: false
+    initial_value: '""'
 
 # --- Alarm entities --------------------------------------------------------
 switch:
@@ -285,6 +323,30 @@ switch:
       - script.execute: play_station
     on_turn_off:
       - media_player.stop: radio_player
+  # Voice agent: the mic and speaker share one I2S bus, so arming the mic
+  # stops the radio first. The PC drives this over UDP (LISTEN/STOP).
+  - platform: template
+    name: "Voice Agent"
+    id: sw_voice_agent
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_turn_on:
+      - lambda: |-
+          ESP_LOGI("voice", "voice agent ON: stopping radio");
+      - switch.turn_off: sw_radio
+      - media_player.stop: radio_player
+      - lambda: |-
+          id(g_radio_on) = false;
+      - delay: 200ms
+      - lambda: |-
+          ESP_LOGI("voice", "starting mic capture");
+      - microphone.capture: mic
+      - lambda: |-
+          ESP_LOGI("voice", "mic capture requested");
+    on_turn_off:
+      - lambda: |-
+          ESP_LOGI("voice", "voice agent OFF: stopping mic");
+      - microphone.stop_capture: mic
   # Speaker amplifier enable (PA_CTRL). Internal; on while the device runs.
   - platform: gpio
     id: sw_pa
@@ -572,6 +634,31 @@ media_player:
       - lambda: id(g_radio_on) = true;
     on_turn_off:
       - lambda: id(g_radio_on) = false;
+
+# --- Microphone: ES8311 analog mic over the shared I2S bus (voice agent) ----
+# The ES8311 ADC is analog: leave use_microphone unset (PDM would be wrong).
+# The mic and speaker share i2s_out; only one may run at a time. The PC stops
+# the mic before asking for a reply. PCM goes straight to the PC over UDP.
+microphone:
+  - platform: i2s_audio
+    id: mic
+    i2s_audio_id: i2s_out
+    i2s_din_pin: GPIO11
+    adc_type: external
+    pdm: false
+    sample_rate: 48000
+    bits_per_sample: 16bit
+    channel: right
+    on_data:
+      - lambda: |-
+          static uint32_t chunks = 0;
+          chunks++;
+          if (chunks == 1 || chunks % 100 == 0) {
+            ESP_LOGI("voice", "mic chunk %u: %u bytes", (unsigned) chunks, (unsigned) x.size());
+          }
+      - udp.write:
+          id: voice_audio_udp
+          data: !lambda 'return x;'
 
 # --- Touch: CST816T (i2c, int 48, rst 47) -----------------------------------
 # Tap anywhere to cancel a ringing alarm (and stop the radio). This makes

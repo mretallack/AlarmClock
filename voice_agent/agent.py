@@ -17,7 +17,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from . import audio, protocol, server
+from . import audio, protocol, server, uplink
 
 ROOT = Path(__file__).resolve().parent
 CONFIG_PATH = ROOT / "config.toml"
@@ -78,6 +78,40 @@ def cmd_serve(cfg: dict, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_listen(cfg: dict, args: argparse.Namespace) -> int:
+    """Tell the device to open its mic, record the PCM, then stop the mic."""
+    audio_port = int(cfg["device"].get("audio_port", 5005))
+    sample_rate = int(cfg["audio"]["sample_rate"])
+    path = OUT_DIR / "mic.wav"
+
+    send_command(cfg, protocol.listen())
+    # Let the device stop the radio and start the mic before we bind.
+    time.sleep(0.4)
+    try:
+        stats = uplink.record(
+            path,
+            port=audio_port,
+            sample_rate=sample_rate,
+            seconds=args.seconds,
+            verbose=not args.quiet,
+        )
+    finally:
+        send_command(cfg, protocol.stop())
+
+    print(
+        f"[mic] saved {stats['path']}  "
+        f"{stats['seconds']}s  {stats['packets']} packets  "
+        f"peak RMS {stats['peak_rms']}",
+        flush=True,
+    )
+    return 0
+
+
+def cmd_stop(cfg: dict, args: argparse.Namespace) -> int:
+    send_command(cfg, protocol.stop())
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="command", required=True)
@@ -95,6 +129,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     serve = sub.add_parser("serve", help="serve ./out over HTTP for manual testing")
     serve.set_defaults(func=cmd_serve)
+
+    listen = sub.add_parser("listen", help="record the device mic to out/mic.wav")
+    listen.add_argument("--seconds", type=float, default=5.0, help="0 = until Ctrl-C")
+    listen.add_argument("--quiet", action="store_true", help="hide the level meter")
+    listen.set_defaults(func=cmd_listen)
+
+    stop = sub.add_parser("stop", help="stop the device mic")
+    stop.set_defaults(func=cmd_stop)
 
     return p
 

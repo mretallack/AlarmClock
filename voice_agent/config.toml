@@ -6,6 +6,8 @@
 host = "10.0.0.97"
 # UDP port the device listens on for commands (see firmware udp: block).
 command_port = 5006
+# UDP port the device sends mic PCM to (this PC listens here).
+audio_port = 5005
 
 [server]
 # The device fetches the WAV from this HTTP server over the LAN.

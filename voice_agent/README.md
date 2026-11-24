@@ -1,8 +1,7 @@
-# voice_agent — dumb voice agent, phase 1
+# voice_agent — dumb voice agent, phase 2
 
-A tiny PC-side agent that makes the alarm clock speak. **No Home Assistant, no
-LLM.** Phase 1 is one direction only: PC → device audio. The microphone /
-uplink comes in phase 2.
+A tiny PC-side agent for the alarm clock. **No Home Assistant, no LLM.** It can
+make the clock speak, and it can record the clock's microphone.
 
 ## How it works
 
@@ -16,27 +15,34 @@ python3 -m voice_agent.agent chime
                                        └─ media_player.play_media(announcement)
                                             └─ HTTP GET /reply.wav
                                             └─ speaker (ES8311 + PA)
+
+python3 -m voice_agent.agent listen
+  └─ UDP "LISTEN" ─────────────────►  stop radio, start mic
+  ◄────────────── raw PCM :5005 ────  microphone (ES8311 ADC, I2S)
+  └─ write out/mic.wav
+  └─ UDP "STOP" ───────────────────►  stop mic
 ```
 
-The device is expected to be at `10.0.0.97`, the PC at `10.0.0.78`. Change both
-in `config.toml` if your LAN differs.
+The mic and speaker share one I2S bus. They cannot run at the same time. The PC
+drives the handover: `LISTEN` stops the radio and starts the mic; `PLAY` stops
+the mic and plays the reply.
+
+The device is expected at `10.0.0.97`, the PC at `10.0.0.78`. Change both in
+`config.toml` if your LAN differs.
 
 ## Run
 
 ```bash
 # from the repo root
-python3 -m voice_agent.agent chime
-```
-
-That generates a short three-note chime, serves it over HTTP, sends the PLAY
-command, and waits for the device to fetch and play it.
-
-Other commands:
-
-```bash
+python3 -m voice_agent.agent chime              # play a chime on the clock
+python3 -m voice_agent.agent listen --seconds 5 # record 5s of mic audio
+python3 -m voice_agent.agent stop               # stop the mic
 python3 -m voice_agent.agent serve              # keep the HTTP server running
-python3 -m voice_agent.agent play <url>         # send PLAY for an existing URL
 ```
+
+`listen` writes `voice_agent/out/mic.wav` and prints a level meter. If the meter
+stays at 0, the mic is not hearing anything (check the bus handover and the
+ES8311 ADC).
 
 ## Protocol
 
@@ -44,17 +50,23 @@ One UTF-8 command per UDP datagram, port **5006**:
 
 | Command | Meaning |
 |---|---|
-| `PLAY <http-url>` | play the URL as a media announcement |
-| `STOP` | stop playback |
+| `LISTEN` | stop the radio and start the mic |
+| `PLAY <http-url>` | stop the mic and play the URL as an announcement |
+| `STOP` | stop the mic |
 | `PING` | liveness probe (logged by the device) |
 
-No framing, no JSON — easy to test with `nc`/`tcpdump`.
+Audio uplink: raw PCM, 48 kHz, 16-bit, mono, UDP port **5005**.
 
 ## Firmware requirement
 
-The device needs a `udp:` block that listens on 5006 and calls
-`media_player.play_media` with `announcement: true` for a `PLAY` command. See
-`firmware/alarmclock.yaml`.
+The device needs:
+
+- a `udp:` control block on port 5006,
+- a second `udp:` block on port 5005 for the PCM uplink,
+- an `i2s_audio` microphone on the shared `i2s_out` bus (`i2s_din_pin: GPIO11`),
+- a `Voice Agent` switch that stops the radio and captures the mic.
+
+See `firmware/alarmclock.yaml`.
 
 ## Tests
 
@@ -62,9 +74,8 @@ The device needs a `udp:` block that listens on 5006 and calls
 python3 -m pytest voice_agent/tests
 ```
 
-## Not in phase 1
+## Not yet
 
-- Microphone uplink (device → PC)
 - Wake word
-- VAD / conversation state
-- TTS (the chime is a placeholder; espeak/piper can be added later)
+- VAD / conversation state machine
+- Reply audio beyond a chime
