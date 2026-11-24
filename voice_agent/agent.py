@@ -169,6 +169,42 @@ def cmd_run(cfg: dict, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_calibrate(cfg: dict, args: argparse.Namespace) -> int:
+    """Cue the human with a chime, then record and recommend a gate.
+
+    The clock plays a chime as the "start talking" cue, then the mic records a
+    fixed window. No precise stop is needed: the report separates room noise
+    from speech by percentile, so any amount of talking in the window works.
+    """
+    public_host = cfg["server"]["public_host"]
+    http_port = int(cfg["server"]["port"])
+    url = f"http://{public_host}:{http_port}/reply.wav"
+    cal_path = OUT_DIR / "calibration.wav"
+
+    audio.generate_chime(OUT_DIR / "reply.wav", sample_rate=48000)
+    srv = server.AudioServer(OUT_DIR, cfg["server"]["bind"], http_port).start()
+    try:
+        print(f"[cal] cue in {args.delay:.0f}s — chime = start talking", flush=True)
+        time.sleep(args.delay)
+        send_command(cfg, protocol.play(url))
+        time.sleep(1.8)
+    finally:
+        srv.stop()
+
+    send_command(cfg, protocol.listen())
+    time.sleep(0.4)
+    try:
+        uplink.record(cal_path, seconds=args.seconds, verbose=not args.quiet)
+    finally:
+        send_command(cfg, protocol.stop())
+
+    report = uplink.analyse(cal_path)
+    print("\n[cal] === calibration report ===", flush=True)
+    for key, value in report.items():
+        print(f"[cal] {key}: {value}", flush=True)
+    return 0
+
+
 def cmd_stop(cfg: dict, args: argparse.Namespace) -> int:
     send_command(cfg, protocol.stop())
     return 0
@@ -214,6 +250,16 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--margin", type=float, default=1.0, help="seconds to wait after playback")
     run.add_argument("--quiet", action="store_true", help="hide the gate meter")
     run.set_defaults(func=cmd_run)
+
+    cal = sub.add_parser(
+        "calibrate", help="chime as a cue, record, and suggest a speech gate"
+    )
+    cal.add_argument(
+        "--delay", type=float, default=20.0, help="seconds between command and chime cue"
+    )
+    cal.add_argument("--seconds", type=float, default=40.0, help="recording window")
+    cal.add_argument("--quiet", action="store_true", help="hide the level meter")
+    cal.set_defaults(func=cmd_calibrate)
 
     stop = sub.add_parser("stop", help="stop the device mic")
     stop.set_defaults(func=cmd_stop)

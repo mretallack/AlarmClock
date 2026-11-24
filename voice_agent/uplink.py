@@ -104,6 +104,44 @@ def capture_utterance(
     return pcm, peak
 
 
+def analyse(path: str | Path, sample_rate: int = 48000, window_ms: int = 20) -> dict:
+    """Summarise a WAV: room-noise floor vs speech, and a suggested gate."""
+    import wave
+
+    with wave.open(str(path), "rb") as wav:
+        raw = wav.readframes(wav.getnframes())
+        sample_rate = wav.getframerate()
+
+    win = max(1, int(sample_rate * window_ms / 1000))
+    count = len(raw) // 2
+    levels = []
+    for start in range(0, count - win + 1, win):
+        chunk = raw[start * 2 : (start + win) * 2]
+        levels.append(_rms(chunk))
+    if not levels:
+        return {"error": "no audio"}
+
+    levels.sort()
+
+    def pct(q: float) -> float:
+        return round(levels[min(len(levels) - 1, int(len(levels) * q))], 1)
+
+    noise = pct(0.50)
+    speech = pct(0.99)
+    suggested = round(max(noise * 3, noise + 25), 0)
+    if speech > suggested * 1.5:
+        suggested = round((noise + speech) / 2, 0)
+
+    return {
+        "window_ms": window_ms,
+        "noise_p50": noise,
+        "noise_p90": pct(0.90),
+        "speech_p99": speech,
+        "peak": round(max(levels), 1),
+        "suggested_threshold": int(suggested),
+    }
+
+
 def record(
     path: str | Path,
     *,

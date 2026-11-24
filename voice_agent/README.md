@@ -75,6 +75,20 @@ See `firmware/alarmclock.yaml`.
 python3 -m pytest voice_agent/tests
 ```
 
+## Calibrating with a cue (`calibrate`)
+
+If you can't tell when to talk, use `calibrate`. It waits `--delay` seconds,
+plays a chime on the clock as the "start talking" cue, then records a fixed
+window and reports room noise vs speech with a suggested gate:
+
+```bash
+python3 -m voice_agent.agent calibrate --delay 20 --seconds 40
+```
+
+You don't need to stop on cue — the report picks out your speech from the room
+noise by percentile. Walk to the room during the delay, talk when you hear the
+chime, then stop whenever.
+
 ## The dumb loop (`run`)
 
 `run` is the actual agent: it arms the mic, waits for a burst of speech above an
