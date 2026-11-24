@@ -1,0 +1,21 @@
+# Voice agent configuration. Edit the two IPs if your LAN differs.
+
+[device]
+# Alarm clock. Prefer the mDNS name if your resolver works:
+#   host = "alarmclock-48e620.local"
+host = "10.0.0.97"
+# UDP port the device listens on for commands (see firmware udp: block).
+command_port = 5006
+
+[server]
+# The device fetches the WAV from this HTTP server over the LAN.
+bind = "0.0.0.0"
+port = 8000
+# Address the DEVICE should use to reach this PC (not 0.0.0.0).
+public_host = "10.0.0.78"
+
+[audio]
+# The device speaker pipeline runs at 48 kHz mono; keep replies in that format.
+sample_rate = 48000
+channels = 1
+sample_width = 2

@@ -111,6 +111,36 @@ ota:
   - platform: esphome
     password: !secret ota_password
 
+# --- Voice agent control channel (PC -> device) -----------------------------
+# Phase 1: a dumb PC-side agent sends one plain-text UDP command and the device
+# plays the referenced WAV as an announcement. No microphone yet (phase 2).
+# Protocol: "PLAY <http-url>" | "STOP" | "PING" (see voice_agent/README.md).
+udp:
+  - id: voice_udp
+    port:
+      listen_port: 5006
+      broadcast_port: 5006
+    addresses:
+      - 10.0.0.78
+    on_receive:
+      - lambda: |-
+          std::string cmd(reinterpret_cast<const char *>(data.data()), data.size());
+          while (!cmd.empty() && (cmd.back() == '\n' || cmd.back() == '\r')) {
+            cmd.pop_back();
+          }
+          ESP_LOGI("voice", "UDP command: %s", cmd.c_str());
+          if (cmd.rfind("PLAY ", 0) == 0) {
+            std::string url = cmd.substr(5);
+            id(radio_player).make_call()
+                .set_media_url(url)
+                .set_announcement(true)
+                .perform();
+          } else if (cmd == "STOP") {
+            id(radio_player).make_call().set_command("STOP").perform();
+          } else if (cmd == "PING") {
+            ESP_LOGI("voice", "PING ok");
+          }
+
 # --- Connectivity / provisioning (design.md §14.1) -------------------------
 improv_serial:                    # first-time Wi-Fi over USB serial (no app)
 
