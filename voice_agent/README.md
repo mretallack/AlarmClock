@@ -86,8 +86,10 @@ any sufficiently loud sound.
 python3 -m voice_agent.agent run --threshold 300 --silence-ms 700 --max-seconds 8
 ```
 
-The gate is calibrated in raw 16-bit RMS units. A quiet room reads single digits;
-speech should be well above 300. Lower `--threshold` if it never triggers.
+The gate is calibrated in raw 16-bit RMS units. Measured on this board: a quiet
+room sits around 6–10, speech peaks around 90–120. The default threshold of 40
+sits between them. Raise it if background noise triggers it; lower it if your
+voice never does.
 
 ## Not yet
 

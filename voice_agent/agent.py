@@ -130,6 +130,8 @@ def cmd_run(cfg: dict, args: argparse.Namespace) -> int:
                 threshold=args.threshold,
                 silence_ms=args.silence_ms,
                 max_seconds=args.max_seconds,
+                min_seconds=args.min_seconds,
+                sample_rate=sample_rate,
                 verbose=not args.quiet,
             )
             send_command(cfg, protocol.stop())
@@ -153,7 +155,9 @@ def cmd_run(cfg: dict, args: argparse.Namespace) -> int:
             )
             seconds = audio.duration_seconds(reply)
             send_command(cfg, protocol.play(url))
-            time.sleep(seconds + args.margin)
+            # Cooldown: let the reply finish and its echo die before re-arming,
+            # otherwise the mic hears the chime and answers itself.
+            time.sleep(seconds + args.margin + 1.0)
     except KeyboardInterrupt:
         print("\n[run] stopped by user", flush=True)
     finally:
@@ -195,13 +199,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = sub.add_parser("run", help="continuous listen -> answer loop (no LLM)")
     run.add_argument(
-        "--threshold", type=float, default=300.0, help="RMS gate for speech (default 300)"
+        "--threshold", type=float, default=40.0, help="RMS gate for speech (default 40)"
     )
     run.add_argument(
         "--silence-ms", type=int, default=700, help="quiet time that ends an utterance"
     )
     run.add_argument(
         "--max-seconds", type=float, default=8.0, help="max length of one utterance"
+    )
+    run.add_argument(
+        "--min-seconds", type=float, default=0.35, help="ignore utterances shorter than this"
     )
     run.add_argument("--volume", type=float, default=0.35, help="reply volume 0.0-1.0")
     run.add_argument("--margin", type=float, default=1.0, help="seconds to wait after playback")

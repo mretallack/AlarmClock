@@ -30,10 +30,12 @@ def capture_utterance(
     *,
     port: int = 5005,
     bind: str = "0.0.0.0",
-    threshold: float = 300.0,
+    threshold: float = 40.0,
     silence_ms: int = 700,
     max_seconds: float = 8.0,
     pre_roll_ms: int = 250,
+    min_seconds: float = 0.35,
+    sample_rate: int = 48000,
     verbose: bool = True,
 ) -> tuple[bytes, float]:
     """Wait for one burst of speech and return its PCM plus peak RMS.
@@ -95,7 +97,11 @@ def capture_utterance(
     finally:
         sock.close()
 
-    return b"".join(frames), peak
+    pcm = b"".join(frames)
+    # Reject clicks and blips: too short to be speech.
+    if len(pcm) / 2 / sample_rate < min_seconds:
+        return b"", peak
+    return pcm, peak
 
 
 def record(
