@@ -24,3 +24,8 @@ Thumbs.db
 
 # Local MQTT/sim scratch
 *.log
+
+# Voice agent local secrets / models / venvs
+voice_agent/.env
+.venv-piper/
+voices/

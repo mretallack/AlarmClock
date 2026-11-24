@@ -17,7 +17,7 @@ import time
 import tomllib
 from pathlib import Path
 
-from . import audio, protocol, server, uplink
+from . import audio, ha, protocol, server, stt, tts, uplink
 
 ROOT = Path(__file__).resolve().parent
 CONFIG_PATH = ROOT / "config.toml"
@@ -37,6 +37,41 @@ def send_command(cfg: dict, cmd: protocol.Command, *, timeout: float = 2.0) -> N
         sock.settimeout(timeout)
         sock.sendto(payload, (host, port))
     print(f"[udp] -> {host}:{port} {payload.decode().strip()!r}", flush=True)
+
+
+def transcribe_heard(path: Path, args: argparse.Namespace) -> str:
+    """Transcribe a captured utterance, tolerating a missing/broken STT setup."""
+    if getattr(args, "no_stt", False):
+        return ""
+    try:
+        text = stt.transcribe(path, model_name=args.stt_model)
+    except Exception as exc:  # keep the dumb loop alive if STT is unavailable
+        print(f"[stt] failed: {exc}", flush=True)
+        return ""
+    print(f"[stt] {text!r}", flush=True)
+    return text
+
+
+def answer_utterance(cfg: dict, text: str, args: argparse.Namespace) -> tuple[Path, float]:
+    """Turn a transcript into a spoken reply file. Returns (path, seconds).
+
+    With HA enabled the text goes to HA Assist and its speech is spoken by
+    Piper. Otherwise, or on any failure, fall back to the local chime.
+    """
+    reply_rate = int(cfg["audio"]["sample_rate"])
+    reply = OUT_DIR / "reply.wav"
+    if text and not getattr(args, "no_ha", False):
+        try:
+            result = ha.ask(text, agent_id=getattr(args, "agent_id", None))
+            speech = result.get("speech") or ""
+            print(f"[ha] {result.get('response_type')}: {speech!r}", flush=True)
+            if speech:
+                tts.speak(speech, reply, sample_rate=reply_rate)
+                return reply, tts.duration_seconds(reply)
+        except Exception as exc:
+            print(f"[ha] failed: {exc}", flush=True)
+    audio.generate_chime(reply, sample_rate=reply_rate, volume=getattr(args, "volume", 0.35))
+    return reply, audio.duration_seconds(reply)
 
 
 def cmd_chime(cfg: dict, args: argparse.Namespace) -> int:
@@ -148,13 +183,9 @@ def cmd_run(cfg: dict, args: argparse.Namespace) -> int:
                 f"  -> {wav}",
                 flush=True,
             )
+            text = transcribe_heard(wav, args)
 
-            reply = audio.generate_chime(
-                OUT_DIR / "reply.wav",
-                sample_rate=reply_rate,
-                volume=args.volume,
-            )
-            seconds = audio.duration_seconds(reply)
+            reply, seconds = answer_utterance(cfg, text, args)
             send_command(cfg, protocol.play(url))
             # Cooldown: let the reply finish and its echo die before re-arming,
             # otherwise the mic hears the chime and answers itself.
@@ -219,7 +250,6 @@ def cmd_wake(cfg: dict, args: argparse.Namespace) -> int:
     reply. The device re-arms the wake word itself when the reply finishes.
     """
     audio_port = int(cfg["device"].get("audio_port", 5005))
-    cmd_port = int(cfg["device"].get("command_port", 5006))
     sample_rate = int(cfg["audio"].get("uplink_sample_rate", 16000))
     reply_rate = int(cfg["audio"]["sample_rate"])
     public_host = cfg["server"]["public_host"]
@@ -227,15 +257,20 @@ def cmd_wake(cfg: dict, args: argparse.Namespace) -> int:
     url = f"http://{public_host}:{port}/reply.wav"
 
     srv = server.AudioServer(OUT_DIR, cfg["server"]["bind"], port).start()
-    print(f"[wake] waiting for the wake word on UDP {cmd_port}", flush=True)
+    print(f"[wake] waiting for the wake word on UDP {audio_port}", flush=True)
+    # One socket for the whole loop: the device sends WAKE and the PCM that
+    # follows on the same port, so binding once avoids dropping the first
+    # frames of the command.
+    sock = uplink.open_socket(audio_port, cfg["server"]["bind"])
     try:
         while True:
-            if not uplink.wait_for_wake(port=cmd_port, timeout=args.timeout):
+            if not uplink.wait_for_wake(timeout=args.timeout, sock=sock):
                 print("[wake] no wake word; exiting", flush=True)
                 return 0
             print("[wake] detected — recording the command", flush=True)
             pcm, peak = uplink.capture_utterance(
                 port=audio_port,
+                sock=sock,
                 threshold=args.threshold,
                 silence_ms=args.silence_ms,
                 max_seconds=args.max_seconds,
@@ -254,21 +289,41 @@ def cmd_wake(cfg: dict, args: argparse.Namespace) -> int:
                 f" -> {wav}",
                 flush=True,
             )
-            reply = audio.generate_chime(
-                OUT_DIR / "reply.wav", sample_rate=reply_rate, volume=args.volume
-            )
-            seconds = audio.duration_seconds(reply)
+            text = transcribe_heard(wav, args)
+            reply, seconds = answer_utterance(cfg, text, args)
             send_command(cfg, protocol.play(url))
             time.sleep(seconds + args.margin + 1.0)
     except KeyboardInterrupt:
         print("\n[wake] stopped by user", flush=True)
     finally:
+        sock.close()
         srv.stop()
     return 0
 
 
 def cmd_stop(cfg: dict, args: argparse.Namespace) -> int:
     send_command(cfg, protocol.stop())
+    return 0
+
+
+def cmd_transcribe(cfg: dict, args: argparse.Namespace) -> int:
+    path = Path(args.path)
+    if not path.exists():
+        print(f"[stt] no such file: {path}", flush=True)
+        return 2
+    text = stt.transcribe(path, model_name=args.stt_model)
+    print(text, flush=True)
+    return 0
+
+
+def cmd_ask(cfg: dict, args: argparse.Namespace) -> int:
+    """Send text to HA Assist and speak the reply locally (no device needed)."""
+    result = ha.ask(args.text, agent_id=args.agent_id)
+    print(f"[ha] {result['response_type']}: {result['speech']!r}", flush=True)
+    if args.speak and result["speech"]:
+        out = OUT_DIR / "reply.wav"
+        tts.speak(result["speech"], out, sample_rate=int(cfg["audio"]["sample_rate"]))
+        print(f"[tts] {out} ({tts.duration_seconds(out):.2f}s)", flush=True)
     return 0
 
 
@@ -311,6 +366,10 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--volume", type=float, default=0.35, help="reply volume 0.0-1.0")
     run.add_argument("--margin", type=float, default=1.0, help="seconds to wait after playback")
     run.add_argument("--quiet", action="store_true", help="hide the gate meter")
+    run.add_argument("--stt-model", default="base.en", help="faster-whisper model (default base.en)")
+    run.add_argument("--no-stt", action="store_true", help="skip speech-to-text")
+    run.add_argument("--no-ha", action="store_true", help="skip Home Assistant; chime instead")
+    run.add_argument("--agent-id", default=None, help="HA conversation agent id (optional)")
     run.set_defaults(func=cmd_run)
 
     cal = sub.add_parser(
@@ -332,10 +391,25 @@ def build_parser() -> argparse.ArgumentParser:
     wake.add_argument("--volume", type=float, default=0.35)
     wake.add_argument("--margin", type=float, default=1.0)
     wake.add_argument("--quiet", action="store_true")
+    wake.add_argument("--stt-model", default="base.en", help="faster-whisper model (default base.en)")
+    wake.add_argument("--no-stt", action="store_true", help="skip speech-to-text")
+    wake.add_argument("--no-ha", action="store_true", help="skip Home Assistant; chime instead")
+    wake.add_argument("--agent-id", default=None, help="HA conversation agent id (optional)")
     wake.set_defaults(func=cmd_wake)
 
     stop = sub.add_parser("stop", help="stop the device mic")
     stop.set_defaults(func=cmd_stop)
+
+    tr = sub.add_parser("transcribe", help="transcribe a WAV file with faster-whisper")
+    tr.add_argument("path")
+    tr.add_argument("--stt-model", default="base.en", help="faster-whisper model (default base.en)")
+    tr.set_defaults(func=cmd_transcribe)
+
+    ask = sub.add_parser("ask", help="send text to HA Assist and speak the reply")
+    ask.add_argument("text")
+    ask.add_argument("--agent-id", default=None, help="HA conversation agent id (optional)")
+    ask.add_argument("--speak", action="store_true", help="render the reply with Piper")
+    ask.set_defaults(func=cmd_ask)
 
     return p
 

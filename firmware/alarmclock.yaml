@@ -115,7 +115,18 @@ psram:
   speed: 80MHz
 
 logger:
-  level: INFO
+  # DEBUG so the wake-word engine's state changes are visible; its logs are
+  # DEBUG-only. Noisy components are pinned back to INFO.
+  level: DEBUG
+  logs:
+    wifi: INFO
+    api: INFO
+    sensor: INFO
+    text_sensor: INFO
+    i2s_audio: INFO
+    voice: INFO
+    udp: INFO
+    micro_wake_word: DEBUG
 
 # Native API is optional (we integrate via MQTT) but handy for logs/OTA/HA.
 api:
@@ -180,8 +191,12 @@ udp:
             lambda: 'return id(g_voice_cmd).rfind("PLAY ", 0) == 0;'
           then:
             - lambda: id(g_voice_stream) = false;
+            # The wake-word engine owns the shared I2S bus; stop it before the
+            # speaker tries to start or the driver reports "Parent bus is busy".
+            - micro_wake_word.stop:
+                id: mww
             - switch.turn_off: sw_voice_agent
-            - delay: 120ms
+            - delay: 350ms
             - media_player.play_media:
                 id: radio_player
                 media_url: !lambda 'return id(g_voice_url);'
@@ -624,6 +639,17 @@ interval:
             ESP_LOGI("alarm", "ALARM RINGING");
             id(ring_alarm)->execute();   // start radio + gentle volume ramp
           }
+  # Self-heal the wake-word engine: a start can lose the race for the shared
+  # I2S bus at boot or right after playback, and it does not retry on its own.
+  # If the radio is off and the PC is not capturing, keep the engine running.
+  - interval: 5s
+    then:
+      - if:
+          condition:
+            lambda: 'return !id(g_radio_on) && !id(g_voice_agent_active) && !id(mww).is_running();'
+          then:
+            - micro_wake_word.start:
+                id: mww
 
 # --- Audio: ES8311 + speaker + internet-radio player (design.md §10) ---------
 # ESP-IDF only. I2S -> ES8311 DAC -> PA -> speaker. The media_player decodes
@@ -733,6 +759,8 @@ micro_wake_word:
   microphone: mic
   models:
     - model: hey_jarvis
+      probability_cutoff: 0.90
+      sliding_window_size: 2
   stop_after_detection: false
   on_wake_word_detected:
     - lambda: |-
@@ -740,8 +768,11 @@ micro_wake_word:
           id(g_voice_stream) = true;
           ESP_LOGI("voice", "wake word detected; streaming to PC");
         }
+    # WAKE goes out on the audio uplink port (5005), not the command port:
+    # the command port's send path never reaches the PC, but PCM on 5005 does.
+    # A 4-byte WAKE is unmistakable among 512-byte PCM frames.
     - udp.write:
-        id: voice_cmd_udp
+        id: voice_audio_udp
         data: "WAKE"
 
 # --- Microphone: ES7210 ADC over the shared I2S bus (voice agent) ----------
@@ -766,9 +797,18 @@ microphone:
     on_data:
       - lambda: |-
           static uint32_t chunks = 0;
+          static uint32_t peak = 0;
           chunks++;
+          // Track the peak sample so we can see the level the wake word sees.
+          const int16_t *s = reinterpret_cast<const int16_t *>(x.data());
+          for (size_t i = 0; i < x.size() / 2; i++) {
+            uint32_t a = s[i] < 0 ? (uint32_t)(-s[i]) : (uint32_t)s[i];
+            if (a > peak) peak = a;
+          }
           if (chunks == 1 || chunks % 100 == 0) {
-            ESP_LOGI("voice", "mic chunk %u: %u bytes", (unsigned) chunks, (unsigned) x.size());
+            ESP_LOGI("voice", "mic chunk %u: %u bytes peak %u",
+                     (unsigned) chunks, (unsigned) x.size(), (unsigned) peak);
+            peak = 0;
           }
       - if:
           condition:

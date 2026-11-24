@@ -7,6 +7,13 @@ PC -> device (UDP, port 5006):
     PING              liveness probe (device logs it)
 
 No framing, no JSON: one command per datagram, UTF-8, trailing newline optional.
+
+Device -> PC (UDP, port 5005, the audio uplink):
+    WAKE              4-byte signal sent when the on-device wake word fires
+    <PCM>             512-byte 16-bit mono frames at 16 kHz
+
+WAKE rides the audio port because the command port's send path never reached
+the PC (see README "Blockers"); PCM and WAKE are told apart by length.
 """
 
 from __future__ import annotations

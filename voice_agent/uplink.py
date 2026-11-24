@@ -26,6 +26,20 @@ def _rms(frame: bytes) -> float:
     return math.sqrt(total / count)
 
 
+def open_socket(port: int = 5005, bind: str = "0.0.0.0") -> socket.socket:
+    """Bind the audio uplink port once and return the socket.
+
+    The device sends both PCM and the ``WAKE`` signal on this single port, so
+    one socket serves the whole run loop: wait for WAKE, then record. Binding
+    once avoids the gap where datagrams are dropped between two binds.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind((bind, port))
+    sock.settimeout(0.5)
+    return sock
+
+
 def capture_utterance(
     *,
     port: int = 5005,
@@ -37,6 +51,7 @@ def capture_utterance(
     min_seconds: float = 0.35,
     sample_rate: int = 48000,
     verbose: bool = True,
+    sock: socket.socket | None = None,
 ) -> tuple[bytes, float]:
     """Wait for one burst of speech and return its PCM plus peak RMS.
 
@@ -45,10 +60,9 @@ def capture_utterance(
     pre-roll) and ends after *silence_ms* of quiet, or *max_seconds* total.
     Returns ``(b"", 0.0)`` if nothing is heard before the caller gives up.
     """
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind((bind, port))
-    sock.settimeout(0.5)
+    owned = sock is None
+    if owned:
+        sock = open_socket(port, bind)
 
     started = time.monotonic()
     peak = 0.0
@@ -71,6 +85,11 @@ def capture_utterance(
                     break
                 continue
             if not data:
+                continue
+            # Control packets (WAKE, 4 bytes) share this port; only PCM frames
+            # are audio. A 20 ms frame at 16 kHz is 640 bytes, so anything
+            # under 32 bytes is a signal, not sound.
+            if len(data) < 32:
                 continue
 
             level = _rms(data)
@@ -95,7 +114,8 @@ def capture_utterance(
                     if len(pre_roll) > keep:
                         pre_roll.pop(0)
     finally:
-        sock.close()
+        if owned:
+            sock.close()
 
     pcm = b"".join(frames)
     # Reject clicks and blips: too short to be speech.
@@ -105,22 +125,32 @@ def capture_utterance(
 
 
 def wait_for_wake(
-    *, port: int = 5006, bind: str = "0.0.0.0", timeout: float = 3600.0
+    *,
+    port: int = 5005,
+    bind: str = "0.0.0.0",
+    timeout: float = 3600.0,
+    sock: socket.socket | None = None,
 ) -> bool:
-    """Block until the device sends a WAKE datagram (or timeout)."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind((bind, port))
+    """Block until the device sends a WAKE datagram (or timeout).
+
+    The device sends WAKE on the same port as the PCM uplink (5005), so the
+    PCM packets arriving alongside it are skipped. A PCM frame is 512 bytes;
+    WAKE is 4 bytes, so the two never collide.
+    """
+    owned = sock is None
+    if owned:
+        sock = open_socket(port, bind)
     sock.settimeout(timeout)
     try:
         while True:
-            data, _addr = sock.recvfrom(2048)
+            data, _addr = sock.recvfrom(65535)
             if data.strip().upper() == b"WAKE":
                 return True
     except socket.timeout:
         return False
     finally:
-        sock.close()
+        if owned:
+            sock.close()
 
 
 def analyse(path: str | Path, sample_rate: int = 48000, window_ms: int = 20) -> dict:

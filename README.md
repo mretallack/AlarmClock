@@ -99,6 +99,24 @@ native ESPHome MQTT scheme ([`docs/mqtt-interface.md`](./docs/mqtt-interface.md)
   device can OTA-reflash it. Generate real values (`openssl rand -base64 32`)
   and re-flash over USB once to load them.
 
+### Dumb voice agent (branch `feat/dumb-voice-agent`)
+
+Wake → STT → HA Assist → TTS → play is wired; the last two links are untested.
+
+- [ ] Confirm the reply is **audible** on the device after the `PLAY` bus fix
+      (firmware now stops `micro_wake_word` before `play_media`, +350 ms).
+- [ ] Verify the device **re-arms the wake word** after playback finishes
+      (`on_idle` + the 5 s watchdog).
+- [ ] Check whether the mic keeps streaming after `PLAY` — the `PLAY` branch may
+      leave `g_voice_stream` true; send `STOP` / clear the flag if so.
+- [ ] Measure end-to-end latency (STT + HA + TTS); consider pre-warming the
+      faster-whisper model at agent start.
+- [ ] Persist `conversation_id` for multi-turn HA conversations; expose an
+      optional `agent_id` (currently one-shot commands only).
+- [ ] Pick/ship a Piper voice deliberately (currently `en_GB-alan-medium`) and
+      document the `.venv-piper` setup.
+- [ ] Add `requirements.txt` / setup notes for `faster-whisper` and Piper.
+
 ## License
 
 [MIT](LICENSE) © 2026 Mark Retallack.
