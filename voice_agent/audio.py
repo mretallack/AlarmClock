@@ -56,6 +56,20 @@ def generate_chime(
     return path
 
 
+def write_pcm_wav(
+    path: str | Path, pcm: bytes, sample_rate: int = 48000, channels: int = 1
+) -> Path:
+    """Write raw 16-bit little-endian PCM to *path* as a WAV."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(path), "wb") as wav:
+        wav.setnchannels(channels)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(pcm)
+    return path
+
+
 def duration_seconds(path: str | Path) -> float:
     with wave.open(str(path), "rb") as wav:
         return wav.getnframes() / float(wav.getframerate())

@@ -38,6 +38,7 @@ python3 -m voice_agent.agent chime              # play a chime on the clock
 python3 -m voice_agent.agent listen --seconds 5 # record 5s of mic audio
 python3 -m voice_agent.agent stop               # stop the mic
 python3 -m voice_agent.agent serve              # keep the HTTP server running
+python3 -m voice_agent.agent run                # continuous listen -> answer loop
 ```
 
 `listen` writes `voice_agent/out/mic.wav` and prints a level meter. If the meter
@@ -74,8 +75,22 @@ See `firmware/alarmclock.yaml`.
 python3 -m pytest voice_agent/tests
 ```
 
+## The dumb loop (`run`)
+
+`run` is the actual agent: it arms the mic, waits for a burst of speech above an
+RMS gate, records the utterance to `out/heard.wav`, then answers with a chime
+played through the clock. No wake word, no LLM, no Home Assistant — it reacts to
+any sufficiently loud sound.
+
+```bash
+python3 -m voice_agent.agent run --threshold 300 --silence-ms 700 --max-seconds 8
+```
+
+The gate is calibrated in raw 16-bit RMS units. A quiet room reads single digits;
+speech should be well above 300. Lower `--threshold` if it never triggers.
+
 ## Not yet
 
 - Wake word
-- VAD / conversation state machine
-- Reply audio beyond a chime
+- Real speech recognition / replies beyond a chime
+- Conversation state machine

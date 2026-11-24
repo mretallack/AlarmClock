@@ -107,6 +107,64 @@ def cmd_listen(cfg: dict, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_run(cfg: dict, args: argparse.Namespace) -> int:
+    """Continuous dumb loop: listen, gate on speech, answer with a chime.
+
+    No LLM, no Home Assistant. The device and speaker share one I2S bus, so the
+    loop hands the bus back and forth: LISTEN -> capture -> STOP -> PLAY.
+    """
+    audio_port = int(cfg["device"].get("audio_port", 5005))
+    sample_rate = int(cfg["audio"]["sample_rate"])
+    public_host = cfg["server"]["public_host"]
+    port = int(cfg["server"]["port"])
+    url = f"http://{public_host}:{port}/reply.wav"
+
+    srv = server.AudioServer(OUT_DIR, cfg["server"]["bind"], port).start()
+    print(f"[run] listening on UDP {audio_port}, threshold {args.threshold:.0f}", flush=True)
+    try:
+        while True:
+            send_command(cfg, protocol.listen())
+            time.sleep(0.4)
+            pcm, peak = uplink.capture_utterance(
+                port=audio_port,
+                threshold=args.threshold,
+                silence_ms=args.silence_ms,
+                max_seconds=args.max_seconds,
+                verbose=not args.quiet,
+            )
+            send_command(cfg, protocol.stop())
+
+            if not pcm:
+                print("[run] nothing heard; re-arming", flush=True)
+                continue
+
+            wav = OUT_DIR / "heard.wav"
+            audio.write_pcm_wav(wav, pcm, sample_rate=sample_rate)
+            print(
+                f"[run] heard {len(pcm) // 2 / sample_rate:.2f}s  peak RMS {peak:.0f}"
+                f"  -> {wav}",
+                flush=True,
+            )
+
+            reply = audio.generate_chime(
+                OUT_DIR / "reply.wav",
+                sample_rate=sample_rate,
+                volume=args.volume,
+            )
+            seconds = audio.duration_seconds(reply)
+            send_command(cfg, protocol.play(url))
+            time.sleep(seconds + args.margin)
+    except KeyboardInterrupt:
+        print("\n[run] stopped by user", flush=True)
+    finally:
+        try:
+            send_command(cfg, protocol.stop())
+        except OSError:
+            pass
+        srv.stop()
+    return 0
+
+
 def cmd_stop(cfg: dict, args: argparse.Namespace) -> int:
     send_command(cfg, protocol.stop())
     return 0
@@ -134,6 +192,21 @@ def build_parser() -> argparse.ArgumentParser:
     listen.add_argument("--seconds", type=float, default=5.0, help="0 = until Ctrl-C")
     listen.add_argument("--quiet", action="store_true", help="hide the level meter")
     listen.set_defaults(func=cmd_listen)
+
+    run = sub.add_parser("run", help="continuous listen -> answer loop (no LLM)")
+    run.add_argument(
+        "--threshold", type=float, default=300.0, help="RMS gate for speech (default 300)"
+    )
+    run.add_argument(
+        "--silence-ms", type=int, default=700, help="quiet time that ends an utterance"
+    )
+    run.add_argument(
+        "--max-seconds", type=float, default=8.0, help="max length of one utterance"
+    )
+    run.add_argument("--volume", type=float, default=0.35, help="reply volume 0.0-1.0")
+    run.add_argument("--margin", type=float, default=1.0, help="seconds to wait after playback")
+    run.add_argument("--quiet", action="store_true", help="hide the gate meter")
+    run.set_defaults(func=cmd_run)
 
     stop = sub.add_parser("stop", help="stop the device mic")
     stop.set_defaults(func=cmd_stop)
