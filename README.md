@@ -84,8 +84,10 @@ tools/       mqtt_sim.py — device simulator (test the whole HA side without ha
 
 🟢 **In progress — first hardware unit up.** The board (device_id `48e620`) is
 flashed, on Wi-Fi (`10.0.0.97`) and publishing MQTT discovery to the broker
-(alarm + radio-control entities; factory firmware archived in `backups/`). Still
-to come: audio/radio playback, touch and on-device UI validation — see the
+(alarm + radio-control entities; factory firmware archived in `backups/`).
+Internet radio **plays** (ES8311 + I2S), and the CST816T touch screen
+**dismisses a ringing alarm / stops the radio** (tap-to-cancel verified, no HA
+needed). Still to come: on-panel UI validation (rotation/offsets). See the
 Track B section of [`tasks.md`](./tasks.md). The wire format is the firmware's
 native ESPHome MQTT scheme ([`docs/mqtt-interface.md`](./docs/mqtt-interface.md)).
 
