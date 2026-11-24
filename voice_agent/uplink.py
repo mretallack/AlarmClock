@@ -30,7 +30,7 @@ def capture_utterance(
     *,
     port: int = 5005,
     bind: str = "0.0.0.0",
-    threshold: float = 40.0,
+    threshold: float = 60.0,
     silence_ms: int = 700,
     max_seconds: float = 8.0,
     pre_roll_ms: int = 250,

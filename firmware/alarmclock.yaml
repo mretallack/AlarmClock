@@ -605,7 +605,7 @@ audio_adc:
     address: 0x40
     bits_per_sample: 16bit
     sample_rate: 48000
-    mic_gain: 24dB
+    mic_gain: 30dB
 
 speaker:
   - platform: i2s_audio

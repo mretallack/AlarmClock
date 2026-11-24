@@ -199,7 +199,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = sub.add_parser("run", help="continuous listen -> answer loop (no LLM)")
     run.add_argument(
-        "--threshold", type=float, default=40.0, help="RMS gate for speech (default 40)"
+        "--threshold", type=float, default=60.0, help="RMS gate for speech (default 60)"
     )
     run.add_argument(
         "--silence-ms", type=int, default=700, help="quiet time that ends an utterance"
