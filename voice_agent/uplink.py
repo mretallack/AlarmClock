@@ -140,6 +140,9 @@ def wait_for_wake(
     owned = sock is None
     if owned:
         sock = open_socket(port, bind)
+    # A caller-supplied socket may be reused by capture_utterance afterwards,
+    # so its short timeout must come back when we are done waiting.
+    prev_timeout = sock.gettimeout()
     sock.settimeout(timeout)
     try:
         while True:
@@ -151,6 +154,8 @@ def wait_for_wake(
     finally:
         if owned:
             sock.close()
+        else:
+            sock.settimeout(prev_timeout)
 
 
 def analyse(path: str | Path, sample_rate: int = 48000, window_ms: int = 20) -> dict:

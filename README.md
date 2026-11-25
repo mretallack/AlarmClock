@@ -101,11 +101,12 @@ native ESPHome MQTT scheme ([`docs/mqtt-interface.md`](./docs/mqtt-interface.md)
 
 ### Dumb voice agent (branch `feat/dumb-voice-agent`)
 
-Wake → STT → HA Assist → TTS → play is wired; the last two links are untested.
+Wake → STT → HA Assist → TTS → play is wired and verified end-to-end
+(wake word → "What time is it?" → "11:14 AM" → audible on the device).
 
-- [ ] Confirm the reply is **audible** on the device after the `PLAY` bus fix
+- [x] Confirm the reply is **audible** on the device after the `PLAY` bus fix
       (firmware now stops `micro_wake_word` before `play_media`, +350 ms).
-- [ ] Verify the device **re-arms the wake word** after playback finishes
+- [x] Verify the device **re-arms the wake word** after playback finishes
       (`on_idle` + the 5 s watchdog).
 - [ ] Check whether the mic keeps streaming after `PLAY` — the `PLAY` branch may
       leave `g_voice_stream` true; send `STOP` / clear the flag if so.
