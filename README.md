@@ -108,15 +108,23 @@ Wake → STT → HA Assist → TTS → play is wired and verified end-to-end
       (firmware now stops `micro_wake_word` before `play_media`, +350 ms).
 - [x] Verify the device **re-arms the wake word** after playback finishes
       (`on_idle` + the 5 s watchdog).
-- [ ] Check whether the mic keeps streaming after `PLAY` — the `PLAY` branch may
+- [x] Check whether the mic keeps streaming after `PLAY` — the `PLAY` branch may
       leave `g_voice_stream` true; send `STOP` / clear the flag if so.
-- [ ] Measure end-to-end latency (STT + HA + TTS); consider pre-warming the
-      faster-whisper model at agent start.
+- [x] Measure end-to-end latency (STT + HA + TTS); the model is now pre-warmed
+      at agent start. Warm runs land near 4–7 s (capture → silent → first audio).
 - [ ] Persist `conversation_id` for multi-turn HA conversations; expose an
       optional `agent_id` (currently one-shot commands only).
-- [ ] Pick/ship a Piper voice deliberately (currently `en_GB-alan-medium`) and
-      document the `.venv-piper` setup.
+- [x] Pick/ship a Piper voice deliberately (currently
+      `en_GB-northern_english_male-medium`) and document the `.venv-piper` setup.
 - [ ] Add `requirements.txt` / setup notes for `faster-whisper` and Piper.
+
+The PC side runs as a systemd **user** service: install
+`systemd/voice-agent.service` to `~/.config/systemd/user/`, then
+`systemctl --user enable --now voice-agent`. Logs go to `/tmp/voice-agent.log`.
+
+The firmware exposes a **Wake Word** switch (MQTT discovery). Off makes the
+device a plain alarm clock: the wake engine stays stopped and the radio owns the
+I2S bus freely. On re-arms the wake word when the radio is off.
 
 ## License
 

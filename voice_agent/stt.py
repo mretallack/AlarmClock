@@ -30,6 +30,15 @@ def _get_model(model_name: str, device: str, compute_type: str):
     return _model
 
 
+def prewarm(
+    model_name: str = DEFAULT_MODEL,
+    device: str = "cpu",
+    compute_type: str = DEFAULT_COMPUTE_TYPE,
+) -> None:
+    """Load the model now so the first real utterance does not pay for it."""
+    _get_model(model_name, device, compute_type)
+
+
 def transcribe(
     path: str | Path,
     *,
@@ -37,11 +46,18 @@ def transcribe(
     device: str = "cpu",
     compute_type: str = DEFAULT_COMPUTE_TYPE,
     language: str = "en",
-    beam_size: int = 5,
+    beam_size: int = 1,
 ) -> str:
     """Return the transcript of a WAV/audio file as one stripped string."""
     model = _get_model(model_name, device, compute_type)
+    # vad_filter skips silence and quiet blips; without it Whisper invents
+    # long fake sentences on short noise clips. condition_on_previous_text off
+    # keeps one utterance from bleeding into the next.
     segments, _info = model.transcribe(
-        str(path), language=language, beam_size=beam_size, vad_filter=False
+        str(path),
+        language=language,
+        beam_size=beam_size,
+        vad_filter=True,
+        condition_on_previous_text=False,
     )
     return " ".join(seg.text.strip() for seg in segments).strip()

@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import socket
 import sys
+import threading
 import time
 import tomllib
 from pathlib import Path
@@ -257,6 +258,12 @@ def cmd_wake(cfg: dict, args: argparse.Namespace) -> int:
     url = f"http://{public_host}:{port}/reply.wav"
 
     srv = server.AudioServer(OUT_DIR, cfg["server"]["bind"], port).start()
+    # Load the STT model in the background while we wait, so the first real
+    # command does not pay the multi-second load cost.
+    if not getattr(args, "no_stt", False):
+        threading.Thread(
+            target=lambda: stt.prewarm(args.stt_model), daemon=True
+        ).start()
     print(f"[wake] waiting for the wake word on UDP {audio_port}", flush=True)
     # One socket for the whole loop: the device sends WAKE and the PCM that
     # follows on the same port, so binding once avoids dropping the first
@@ -268,6 +275,7 @@ def cmd_wake(cfg: dict, args: argparse.Namespace) -> int:
                 print("[wake] no wake word; exiting", flush=True)
                 return 0
             print("[wake] detected — recording the command", flush=True)
+            t0 = time.monotonic()
             pcm, peak = uplink.capture_utterance(
                 port=audio_port,
                 sock=sock,
@@ -289,9 +297,19 @@ def cmd_wake(cfg: dict, args: argparse.Namespace) -> int:
                 f" -> {wav}",
                 flush=True,
             )
+            t_cap = time.monotonic()
             text = transcribe_heard(wav, args)
+            t_stt = time.monotonic()
             reply, seconds = answer_utterance(cfg, text, args)
+            t_tts = time.monotonic()
             send_command(cfg, protocol.play(url))
+            print(
+                f"[latency] capture {(t_cap - t0) * 1000:.0f} ms"
+                f" | stt {(t_stt - t_cap) * 1000:.0f} ms"
+                f" | ha+tts {(t_tts - t_stt) * 1000:.0f} ms"
+                f" | total {(time.monotonic() - t0) * 1000:.0f} ms",
+                flush=True,
+            )
             time.sleep(seconds + args.margin + 1.0)
     except KeyboardInterrupt:
         print("\n[wake] stopped by user", flush=True)
@@ -352,16 +370,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = sub.add_parser("run", help="continuous listen -> answer loop (no LLM)")
     run.add_argument(
-        "--threshold", type=float, default=90.0, help="RMS gate for speech (default 90)"
+        "--threshold", type=float, default=120.0, help="RMS gate for speech (default 120)"
     )
     run.add_argument(
-        "--silence-ms", type=int, default=700, help="quiet time that ends an utterance"
+        "--silence-ms", type=int, default=400, help="quiet time that ends an utterance"
     )
     run.add_argument(
         "--max-seconds", type=float, default=8.0, help="max length of one utterance"
     )
     run.add_argument(
-        "--min-seconds", type=float, default=0.35, help="ignore utterances shorter than this"
+        "--min-seconds", type=float, default=0.8, help="ignore utterances shorter than this"
     )
     run.add_argument("--volume", type=float, default=0.35, help="reply volume 0.0-1.0")
     run.add_argument("--margin", type=float, default=1.0, help="seconds to wait after playback")
@@ -383,10 +401,10 @@ def build_parser() -> argparse.ArgumentParser:
     cal.set_defaults(func=cmd_calibrate)
 
     wake = sub.add_parser("wake", help="wait for the on-device wake word, then answer")
-    wake.add_argument("--threshold", type=float, default=90.0, help="RMS gate for speech")
-    wake.add_argument("--silence-ms", type=int, default=700)
+    wake.add_argument("--threshold", type=float, default=120.0, help="RMS gate for speech")
+    wake.add_argument("--silence-ms", type=int, default=400)
     wake.add_argument("--max-seconds", type=float, default=8.0)
-    wake.add_argument("--min-seconds", type=float, default=0.35)
+    wake.add_argument("--min-seconds", type=float, default=0.8)
     wake.add_argument("--timeout", type=float, default=3600.0, help="give up after N seconds")
     wake.add_argument("--volume", type=float, default=0.35)
     wake.add_argument("--margin", type=float, default=1.0)

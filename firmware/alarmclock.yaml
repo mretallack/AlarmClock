@@ -181,7 +181,7 @@ udp:
             # again. Without this the engine stays dead until a reboot.
             - if:
                 condition:
-                  switch.is_off: sw_radio
+                  lambda: 'return id(sw_radio).state == false && id(g_wake_enabled);'
                 then:
                   - delay: 150ms
                   - micro_wake_word.start:
@@ -366,6 +366,10 @@ globals:
     type: bool
     restore_value: false
     initial_value: "false"   # true while the PC drives a plain mic capture
+  - id: g_wake_enabled
+    type: bool
+    restore_value: true
+    initial_value: "true"    # false = behave as a plain alarm clock, no wake word
 
 # --- Alarm entities --------------------------------------------------------
 switch:
@@ -391,13 +395,36 @@ switch:
       - script.execute: play_station
     on_turn_off:
       - media_player.stop: radio_player
-      # Radio off -> bus free -> arm the wake word (unless the PC is capturing).
+      # Radio off -> bus free -> arm the wake word (unless the PC is capturing
+      # or the Wake Word switch is off).
       - if:
           condition:
-            lambda: 'return !id(g_voice_agent_active);'
+            lambda: 'return !id(g_voice_agent_active) && id(g_wake_enabled);'
           then:
             - micro_wake_word.start:
                 id: mww
+  # Wake Word: the master switch for the voice assistant. ON = listen for the
+  # wake word and answer. OFF = a plain alarm clock; the mic stays off and the
+  # radio can use the bus freely.
+  - platform: template
+    name: "Wake Word"
+    id: sw_wake_word
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    on_turn_on:
+      - lambda: id(g_wake_enabled) = true;
+      - if:
+          condition:
+            lambda: 'return !id(g_radio_on) && !id(g_voice_agent_active);'
+          then:
+            - micro_wake_word.start:
+                id: mww
+    on_turn_off:
+      - lambda: |-
+          id(g_wake_enabled) = false;
+          id(g_voice_stream) = false;
+      - micro_wake_word.stop:
+          id: mww
   # Voice agent: the mic and speaker share one I2S bus, so arming the mic
   # stops the radio first. The PC drives this over UDP (LISTEN/STOP).
   - platform: template
@@ -646,7 +673,7 @@ interval:
     then:
       - if:
           condition:
-            lambda: 'return !id(g_radio_on) && !id(g_voice_agent_active) && !id(mww).is_running();'
+            lambda: 'return id(g_wake_enabled) && !id(g_radio_on) && !id(g_voice_agent_active) && !id(mww).is_running();'
           then:
             - micro_wake_word.start:
                 id: mww
@@ -744,7 +771,7 @@ media_player:
       # A reply finished and the radio is off -> re-arm the wake word.
       - if:
           condition:
-            lambda: 'return !id(g_radio_on) && !id(g_voice_agent_active);'
+            lambda: 'return id(g_wake_enabled) && !id(g_radio_on) && !id(g_voice_agent_active);'
           then:
             - micro_wake_word.start:
                 id: mww

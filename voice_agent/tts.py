@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PIPER_PY = ROOT / ".venv-piper" / "bin" / "python"
-VOICE_MODEL = ROOT / "voices" / "en_GB-alan-medium.onnx"
+VOICE_MODEL = ROOT / "voices" / "en_GB-northern_english_male-medium.onnx"
 DEVICE_RATE = 48000
 
 
@@ -26,7 +26,7 @@ def _check() -> None:
     if not VOICE_MODEL.exists():
         raise RuntimeError(
             f"voice model missing at {VOICE_MODEL}; download with "
-            "`python -m piper.download_voices en_GB-alan-medium --data-dir voices`"
+            "`python -m piper.download_voices en_GB-northern_english_male-medium --data-dir voices`"
         )
 
 

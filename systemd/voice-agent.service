@@ -1,0 +1,17 @@
+[Unit]
+Description=Alarm clock voice agent (wake word -> STT -> HA -> TTS -> device)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/mark/git/alarmclock
+ExecStart=/usr/bin/python3 -m voice_agent.agent wake --timeout 31536000
+Environment=PYTHONUNBUFFERED=1
+StandardOutput=append:/tmp/voice-agent.log
+StandardError=append:/tmp/voice-agent.log
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
