@@ -388,12 +388,14 @@ switch:
     optimistic: true
     restore_mode: RESTORE_DEFAULT_OFF
     on_turn_on:
+      - lambda: id(g_radio_on) = true;
       # The radio's 48 kHz speaker owns the bus; stop the 16 kHz wake-word mic.
       - micro_wake_word.stop:
           id: mww
       - media_player.turn_on: radio_player
       - script.execute: play_station
     on_turn_off:
+      - lambda: id(g_radio_on) = false;
       - media_player.stop: radio_player
       # Radio off -> bus free -> arm the wake word (unless the PC is capturing
       # or the Wake Word switch is off).
@@ -763,10 +765,10 @@ media_player:
     announcement_pipeline:
       speaker: spk_resample_ann
       num_channels: 1
-    on_turn_on:
-      - lambda: id(g_radio_on) = true;
-    on_turn_off:
-      - lambda: id(g_radio_on) = false;
+    # NB: g_radio_on is driven by the "Radio" switch (and the alarm), *not* by
+    # this player's own on/off. An Assist announcement is also played through
+    # this player, and its on_turn_on used to latch g_radio_on=true, which then
+    # blocked the wake word from re-arming after every reply.
     on_idle:
       # A reply finished and the radio is off -> re-arm the wake word.
       - if:
