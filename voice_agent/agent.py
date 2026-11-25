@@ -271,7 +271,8 @@ def cmd_wake(cfg: dict, args: argparse.Namespace) -> int:
     sock = uplink.open_socket(audio_port, cfg["server"]["bind"])
     try:
         while True:
-            if not uplink.wait_for_wake(timeout=args.timeout, sock=sock):
+            lead = uplink.wait_for_wake(timeout=args.timeout, sock=sock)
+            if lead is None:
                 print("[wake] no wake word; exiting", flush=True)
                 return 0
             print("[wake] detected — recording the command", flush=True)
@@ -285,6 +286,7 @@ def cmd_wake(cfg: dict, args: argparse.Namespace) -> int:
                 min_seconds=args.min_seconds,
                 sample_rate=sample_rate,
                 verbose=not args.quiet,
+                seed=lead,
             )
             if not pcm:
                 print("[wake] nothing captured; re-arming", flush=True)

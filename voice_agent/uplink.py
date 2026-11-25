@@ -47,11 +47,12 @@ def capture_utterance(
     threshold: float = 90.0,
     silence_ms: int = 700,
     max_seconds: float = 8.0,
-    pre_roll_ms: int = 250,
+    pre_roll_ms: int = 500,
     min_seconds: float = 0.35,
     sample_rate: int = 48000,
     verbose: bool = True,
     sock: socket.socket | None = None,
+    seed: bytes = b"",
 ) -> tuple[bytes, float]:
     """Wait for one burst of speech and return its PCM plus peak RMS.
 
@@ -59,6 +60,10 @@ def capture_utterance(
     *threshold*. An utterance starts at the first loud packet (with a short
     pre-roll) and ends after *silence_ms* of quiet, or *max_seconds* total.
     Returns ``(b"", 0.0)`` if nothing is heard before the caller gives up.
+
+    *seed* is PCM already received before this call (for example the frames a
+    caller read while waiting for the wake signal). It is kept as pre-roll so
+    the first syllable of the command is not clipped off the front.
     """
     owned = sock is None
     if owned:
@@ -70,6 +75,10 @@ def capture_utterance(
     last_voice = 0.0
     pre_roll: list[bytes] = []
     frames: list[bytes] = []
+    if seed:
+        # Audio that arrived before the wake signal is the start of the
+        # command, not silence: keep all of it as pre-roll.
+        pre_roll.append(seed)
 
     try:
         while True:
@@ -130,12 +139,15 @@ def wait_for_wake(
     bind: str = "0.0.0.0",
     timeout: float = 3600.0,
     sock: socket.socket | None = None,
-) -> bool:
+) -> bytes | None:
     """Block until the device sends a WAKE datagram (or timeout).
 
     The device sends WAKE on the same port as the PCM uplink (5005), so the
-    PCM packets arriving alongside it are skipped. A PCM frame is 512 bytes;
-    WAKE is 4 bytes, so the two never collide.
+    PCM packets arriving alongside it are buffered, not thrown away. A PCM
+    frame is 512 bytes; WAKE is 4 bytes, so the two never collide.
+
+    Returns the PCM read before WAKE (the first audio of the command, kept so
+    the caller can seed capture_utterance), or ``None`` when no wake arrived.
     """
     owned = sock is None
     if owned:
@@ -144,13 +156,22 @@ def wait_for_wake(
     # so its short timeout must come back when we are done waiting.
     prev_timeout = sock.gettimeout()
     sock.settimeout(timeout)
+    buffered: list[bytes] = []
+    kept = 0
+    # Cap the retained audio so a long wait cannot grow without bound (~3 s).
+    cap = 3 * 16000 * 2
     try:
         while True:
             data, _addr = sock.recvfrom(65535)
             if data.strip().upper() == b"WAKE":
-                return True
+                return b"".join(buffered)
+            if len(data) >= 32:  # PCM frame, not a control signal
+                buffered.append(data)
+                kept += len(data)
+                while kept > cap and buffered:
+                    kept -= len(buffered.pop(0))
     except socket.timeout:
-        return False
+        return None
     finally:
         if owned:
             sock.close()
